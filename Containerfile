@@ -1,157 +1,310 @@
 # =============================================================================
 # Containerfile — imagem customizada baseada no Aurora (Universal Blue)
 #
-# Este arquivo NÃO gera uma ISO. Ele constrói a IMAGEM que seu sistema vai
-# seguir depois que você rodar "bootc switch" nele uma vez (veja README.md).
+# Este arquivo NÃO gera uma ISO. Ele constrói uma imagem OCI/bootc que poderá
+# ser usada com "bootc switch".
 #
-# Filosofia adotada aqui:
-#   - Coisas de SISTEMA (drivers, pacotes, serviços) ficam neste Containerfile.
-#   - Coisas de USUÁRIO (Rust via rustup, Flutter em ~/development, configs
-#     pessoais) ficam no script "primeiro-boot-por-maquina.sh", porque
-#     precisam viver em /home, que NÃO faz parte da imagem.
-#   - Coisas SENSÍVEIS (Warsaw/banco) ficam de fora de propósito — não é
-#     boa prática misturar credencial/software financeiro com uma imagem
-#     compilada automaticamente e versionada publicamente.
+# Organização:
+#   - Sistema, drivers, pacotes e serviços: nesta imagem.
+#   - Configurações e ferramentas que precisam viver em /home: script de
+#     primeiro boot por máquina.
+#   - Aplicativos com dados sensíveis ou uso bancário: fora da imagem.
+#
+# Arquivos esperados no contexto do build:
+#   - DarkPastels.colorscheme
+#   - Gabriel.profile
+#   - fastfetch-config.jsonc
+#   - deepcool-cli.service
 # =============================================================================
 
-# Confira o nome exato da tag em https://github.com/orgs/ublue-os/packages
-# antes de usar em produção — troque para a variante "-nvidia-open" se ela
-# existir separadamente (sua RTX 5080 precisa do módulo aberto da NVIDIA).
-FROM ghcr.io/ublue-os/aurora:stable AS base
-
-# Garante que falhas dentro de "curl ... | bash" (como nos instaladores do
-# oh-my-posh e rclone mais abaixo) realmente quebrem o build, em vez de
-# passar batido silenciosamente se o curl falhar mas o bash ainda "rodar".
-SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 # -----------------------------------------------------------------------------
-# 1) RPM Fusion + codecs completos (ffmpeg de verdade, não o ffmpeg-free)
+# 0) Builder isolado do qt-deepcool
 #
-#    Nota: "dnf group upgrade multimedia" foi trocado por pacotes explícitos.
-#    Dentro de um build de container, os metadados de grupo (comps) nem
-#    sempre estão disponíveis da mesma forma que num sistema já instalado —
-#    isso já quebrou um build nosso com "No match for argument: multimedia".
-#    Instalar os pacotes diretamente evita depender desses metadados opcionais.
-# -----------------------------------------------------------------------------
-RUN dnf swap -y ffmpeg-free ffmpeg --allowerasing \
-    && dnf config-manager setopt fedora-cisco-openh264.enabled=1 \
-    && dnf install -y \
-        openh264 gstreamer1-plugin-openh264 \
-        gstreamer1-plugins-ugly gstreamer1-plugins-bad-freeworld gstreamer1-libav \
-        libfdk-aac.x86_64 libfdk-aac.i686 \
-    && dnf clean all
-# Nota: libfdk-aac.i686 explícito evita um bug antigo do RPM/DNF em que o
-# "Obsoletes" do libfdk-aac de 64 bits bloqueia a instalação da versão de
-# 32 bits (fdk-aac-free.i686) que o Steam precisa para a pilha de áudio
-# pipewire de 32 bits — mesmo sendo arquiteturas diferentes. Sem isso, o
-# "dnf install steam" da próxima etapa falha com um conflito de dependências.
-
-# -----------------------------------------------------------------------------
-# 2) Stack de gaming (Steam, MangoHud, GameMode, Gamescope, Wine)
-# -----------------------------------------------------------------------------
-RUN dnf install -y \
-        steam mangohud gamemode gamescope wine winetricks vulkan-tools \
-    && dnf clean all
-
-# -----------------------------------------------------------------------------
-# 3) Ferramentas de sistema (VS Code, GitHub CLI, fastfetch, oh-my-posh, rclone)
-# -----------------------------------------------------------------------------
-RUN rpm --import https://packages.microsoft.com/keys/microsoft.asc \
-    && printf '[code]\nname=Visual Studio Code\nbaseurl=https://packages.microsoft.com/yumrepos/vscode\nenabled=1\ngpgcheck=1\ngpgkey=https://packages.microsoft.com/keys/microsoft.asc\n' \
-        > /etc/yum.repos.d/vscode.repo \
-    && dnf install -y dnf5-plugins \
-    && dnf config-manager addrepo --from-repofile=https://cli.github.com/packages/rpm/gh-cli.repo \
-    && dnf install -y code gh fastfetch \
-    && dnf clean all
-
-# oh-my-posh e rclone: binário único, instalados globalmente em /usr/local/bin
-# (os temas/configs pessoais do oh-my-posh continuam ficando em ~/.config,
-# por usuário, no primeiro boot — só o binário mora aqui).
-RUN curl -s https://ohmyposh.dev/install.sh | bash -s -- -d /usr/local/bin \
-    && curl https://rclone.org/install.sh | bash
-
-# Tema "Atomic" do oh-my-posh, fixado como padrão para QUALQUER usuário desta
-# imagem. Diferente do Konsole/fastfetch (que dependem de $HOME e por isso
-# precisam do script de primeiro boot), o prompt do bash é configurado via
-# /etc/profile.d/ — um script ali roda automaticamente pra todo mundo que
-# abrir um shell de login, sem precisar copiar nada pra pasta de ninguém.
-# Usamos o arquivo baixado localmente (não a URL remota) por recomendação da
-# própria documentação do oh-my-posh: evita depender de rede toda vez que um
-# terminal abre, e é mais rápido.
-RUN mkdir -p /usr/local/share/oh-my-posh/themes \
-    && curl -sL https://raw.githubusercontent.com/JanDeDobbeleer/oh-my-posh/main/themes/atomic.omp.json \
-        -o /usr/local/share/oh-my-posh/themes/atomic.omp.json
-RUN printf '#!/bin/bash\nif [ -t 1 ] && command -v oh-my-posh &> /dev/null; then\n    eval "$(oh-my-posh init bash --config /usr/local/share/oh-my-posh/themes/atomic.omp.json)"\nfi\n' \
-        > /etc/profile.d/gabriel-oh-my-posh.sh \
-    && chmod +x /etc/profile.d/gabriel-oh-my-posh.sh
-
-# Fonte Hack Nerd Font, instalada globalmente (system-wide) — equivalente ao
-# "oh-my-posh font install hack", mas de forma que funciona pra qualquer
-# usuário da imagem, não só quem rodar o instalador depois.
-RUN mkdir -p /usr/share/fonts/hack-nerd-font \
-    && curl -sL https://github.com/ryanoasis/nerd-fonts/releases/latest/download/Hack.zip \
-        -o /tmp/hack-nerd-font.zip \
-    && unzip -o /tmp/hack-nerd-font.zip -d /usr/share/fonts/hack-nerd-font \
-    && rm -f /tmp/hack-nerd-font.zip /usr/share/fonts/hack-nerd-font/*Windows* \
-    && fc-cache -f
-
-# -----------------------------------------------------------------------------
-# 3.1) Dotfiles "modelo" — Konsole (Dark Pastels + Hack Nerd Font) e fastfetch.
-#      Ficam guardados como TEMPLATE dentro da imagem, em /usr/share/. O
-#      script de primeiro boot (primeiro-boot-por-maquina.sh) copia esses
-#      arquivos para dentro do $HOME do usuário de verdade — porque $HOME
-#      fica FORA da imagem, e uma conta já existente não é populada por
-#      /etc/skel (que só vale para contas novas).
-# -----------------------------------------------------------------------------
-RUN mkdir -p /usr/share/gabriel-dotfiles/konsole /usr/share/gabriel-dotfiles/fastfetch
-COPY DarkPastels.colorscheme /usr/share/gabriel-dotfiles/konsole/DarkPastels.colorscheme
-COPY Gabriel.profile /usr/share/gabriel-dotfiles/konsole/Gabriel.profile
-COPY fastfetch-config.jsonc /usr/share/gabriel-dotfiles/fastfetch/config.jsonc
-# Também deixamos uma cópia em /etc/skel, para contas NOVAS criadas a partir
-# desta imagem já nascerem com tudo pronto, sem precisar do script:
-RUN mkdir -p /etc/skel/.local/share/konsole /etc/skel/.config/fastfetch
-COPY DarkPastels.colorscheme /etc/skel/.local/share/konsole/DarkPastels.colorscheme
-COPY Gabriel.profile /etc/skel/.local/share/konsole/Gabriel.profile
-COPY fastfetch-config.jsonc /etc/skel/.config/fastfetch/config.jsonc
-RUN printf '[Desktop Entry]\nDefaultProfile=Gabriel.profile\n' > /etc/skel/.config/konsolerc
-
-# -----------------------------------------------------------------------------
-# 4) Virtualização (GNOME Boxes / QEMU / KVM / libvirt)
-#    Se o Aurora já trouxer isso por padrão, este passo é apenas idempotente.
-# -----------------------------------------------------------------------------
-RUN dnf install -y "@virtualization" gnome-boxes \
-    && dnf clean all
-
-# -----------------------------------------------------------------------------
-# 5) Firewall — política padrão (nega entrada, libera saída)
-#    firewall-offline-cmd é a ferramenta certa para configurar firewalld
-#    DURANTE o build de uma imagem (não há systemd rodando de verdade aqui,
-#    então "firewall-cmd" normal não funcionaria).
-# -----------------------------------------------------------------------------
-RUN firewall-offline-cmd --set-default-zone=drop \
-    && firewall-offline-cmd --zone=drop --add-service=dhcpv6-client
-
-# -----------------------------------------------------------------------------
-# 6) qt-deepcool — compilado em estágio separado, binário final copiado pra
-#    imagem definitiva sem carregar todo o toolchain de build junto.
-#    O serviço fica PRESENTE mas NUNCA habilitado aqui — cada máquina decide
-#    (veja README.md: só o desktop com o watercooler deve ativá-lo).
+# Para máxima reprodutibilidade, substitua "main" por um commit específico:
+#   podman build --build-arg QT_DEEPCOOL_REF=<commit> ...
 # -----------------------------------------------------------------------------
 FROM fedora:44 AS deepcool-builder
-RUN dnf install -y cmake gcc-c++ qt6-qtbase-devel libusb1-devel systemd-devel git \
-    && git clone https://github.com/mymymy1303/qt-deepcool.git /src \
-    && cmake -B /src/build -S /src \
-    && cmake --build /src/build
 
-FROM base
-COPY --from=deepcool-builder /src/build/bin/deepcool-cli /usr/local/bin/deepcool-cli
-COPY --from=deepcool-builder /src/99-deepcool.rules /etc/udev/rules.d/99-deepcool.rules
-COPY deepcool-cli.service /etc/systemd/system/deepcool-cli.service
-# Repare: NÃO há "RUN systemctl enable deepcool-cli" aqui — fica desativado
-# por padrão em toda máquina que usar esta imagem, de propósito.
+ARG QT_DEEPCOOL_REF=main
+
+RUN dnf5 install -y \
+        cmake \
+        gcc-c++ \
+        git \
+        libusb1-devel \
+        pkgconf-pkg-config \
+        qt6-qtbase-devel \
+        systemd-devel \
+    && dnf5 clean all
+
+RUN git clone https://github.com/mymymy1303/qt-deepcool.git /src \
+    && git -C /src checkout "${QT_DEEPCOOL_REF}" \
+    && cmake \
+        -S /src \
+        -B /src/build \
+        -DCMAKE_BUILD_TYPE=Release \
+    && cmake --build /src/build --parallel "$(nproc)" \
+    && cmake --install /src/build \
+        --prefix /usr/local \
+        --strip
+
 
 # -----------------------------------------------------------------------------
-# Metadados finais (opcional, mas ajuda a rastrear qual build gerou o quê)
+# 1) Imagem-base
+#
+# A variante nvidia-open é adequada para a máquina com NVIDIA RTX 5080.
+# Caso a máquina de destino use outra variante do Aurora, ajuste este FROM
+# para corresponder à imagem exibida por:
+#
+#   sudo bootc status
 # -----------------------------------------------------------------------------
-LABEL org.opencontainers.image.title="aurora-gabriel"
-LABEL org.opencontainers.image.description="Imagem Aurora customizada — stack pessoal de gaming, dev e utilitários de sistema"
+FROM ghcr.io/ublue-os/aurora-nvidia-open:stable AS final
+
+ARG OH_MY_POSH_VERSION=29.26.1
+ARG NERD_FONTS_VERSION=3.4.0
+
+
+# -----------------------------------------------------------------------------
+# 2) Dependências fundamentais da customização
+#
+# Não usamos a instrução SHELL, pois o Podman em formato OCI a ignora.
+# Quando pipefail é necessário, o Bash é chamado explicitamente.
+# -----------------------------------------------------------------------------
+RUN dnf5 install -y \
+        ca-certificates \
+        curl \
+        dnf5-plugins \
+        firewalld \
+        fontconfig \
+        fastfetch \
+        git \
+        gh \
+        libusb1 \
+        qt6-qtbase \
+        rclone \
+        unzip \
+    && dnf5 clean all
+
+
+# -----------------------------------------------------------------------------
+# 3) RPM Fusion e codecs multimídia
+#
+# O Aurora normalmente já traz o ffmpeg completo. Esta verificação evita que
+# "dnf5 swap ffmpeg-free ffmpeg" falhe quando ffmpeg já estiver instalado.
+# -----------------------------------------------------------------------------
+RUN /bin/bash -c 'set -euxo pipefail; \
+    if rpm -q ffmpeg-free >/dev/null 2>&1; then \
+        echo "ffmpeg-free encontrado; realizando a troca por ffmpeg."; \
+        dnf5 swap -y ffmpeg-free ffmpeg --allowerasing; \
+    elif rpm -q ffmpeg >/dev/null 2>&1; then \
+        echo "ffmpeg completo já está instalado; nenhuma troca necessária."; \
+    else \
+        echo "Nenhum ffmpeg encontrado; instalando o pacote completo."; \
+        dnf5 install -y ffmpeg --allowerasing; \
+    fi; \
+    dnf5 config-manager setopt fedora-cisco-openh264.enabled=1; \
+    dnf5 install -y \
+        openh264 \
+        gstreamer1-plugin-openh264 \
+        gstreamer1-plugins-ugly \
+        gstreamer1-plugins-bad-freeworld \
+        gstreamer1-libav \
+        libfdk-aac.x86_64 \
+        libfdk-aac.i686; \
+    dnf5 clean all'
+
+
+# -----------------------------------------------------------------------------
+# 4) Stack de gaming
+# -----------------------------------------------------------------------------
+RUN dnf5 install -y \
+        gamemode \
+        gamescope \
+        mangohud \
+        steam \
+        vulkan-tools \
+        wine \
+        winetricks \
+    && dnf5 clean all
+
+
+# -----------------------------------------------------------------------------
+# 5) Visual Studio Code
+#
+# O GitHub CLI é instalado do repositório do Fedora, sem adicionar um segundo
+# repositório externo. O VS Code permanece no repositório oficial da Microsoft.
+# -----------------------------------------------------------------------------
+RUN /bin/bash -c 'set -euxo pipefail; \
+    curl -fsSL \
+        https://packages.microsoft.com/keys/microsoft.asc \
+        -o /tmp/microsoft.asc; \
+    install -Dm0644 \
+        /tmp/microsoft.asc \
+        /etc/pki/rpm-gpg/RPM-GPG-KEY-microsoft; \
+    rpm --import /etc/pki/rpm-gpg/RPM-GPG-KEY-microsoft; \
+    printf "%s\n" \
+        "[code]" \
+        "name=Visual Studio Code" \
+        "baseurl=https://packages.microsoft.com/yumrepos/vscode" \
+        "enabled=1" \
+        "gpgcheck=1" \
+        "repo_gpgcheck=0" \
+        "gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-microsoft" \
+        > /etc/yum.repos.d/vscode.repo; \
+    dnf5 install -y code; \
+    rm -f /tmp/microsoft.asc; \
+    dnf5 clean all'
+
+
+# -----------------------------------------------------------------------------
+# 6) Oh My Posh
+#
+# O binário e o tema são fixados por versão para evitar que o mesmo commit da
+# imagem produza resultados diferentes em builds futuros.
+# -----------------------------------------------------------------------------
+RUN /bin/bash -c 'set -euxo pipefail; \
+    curl -fsSL \
+        "https://github.com/JanDeDobbeleer/oh-my-posh/releases/download/v${OH_MY_POSH_VERSION}/posh-linux-amd64" \
+        -o /usr/local/bin/oh-my-posh; \
+    chmod 0755 /usr/local/bin/oh-my-posh; \
+    install -d -m 0755 /usr/local/share/oh-my-posh/themes; \
+    curl -fsSL \
+        "https://raw.githubusercontent.com/JanDeDobbeleer/oh-my-posh/v${OH_MY_POSH_VERSION}/themes/atomic.omp.json" \
+        -o /usr/local/share/oh-my-posh/themes/atomic.omp.json'
+
+RUN printf '%s\n' \
+        '#!/bin/bash' \
+        'if [ -n "${BASH_VERSION:-}" ] && [ -t 1 ] && command -v oh-my-posh >/dev/null 2>&1; then' \
+        '    eval "$(oh-my-posh init bash --config /usr/local/share/oh-my-posh/themes/atomic.omp.json)"' \
+        'fi' \
+        > /etc/profile.d/gabriel-oh-my-posh.sh \
+    && chmod 0755 /etc/profile.d/gabriel-oh-my-posh.sh
+
+
+# -----------------------------------------------------------------------------
+# 7) Hack Nerd Font
+# -----------------------------------------------------------------------------
+RUN /bin/bash -c 'set -euxo pipefail; \
+    install -d -m 0755 /usr/share/fonts/hack-nerd-font; \
+    curl -fsSL \
+        "https://github.com/ryanoasis/nerd-fonts/releases/download/v${NERD_FONTS_VERSION}/Hack.zip" \
+        -o /tmp/hack-nerd-font.zip; \
+    unzip -q -o \
+        /tmp/hack-nerd-font.zip \
+        -d /usr/share/fonts/hack-nerd-font; \
+    rm -f \
+        /tmp/hack-nerd-font.zip \
+        /usr/share/fonts/hack-nerd-font/*Windows*; \
+    fc-cache -f'
+
+
+# -----------------------------------------------------------------------------
+# 8) Dotfiles modelo — Konsole e fastfetch
+#
+# Uma cópia fica em /usr/share para o script de primeiro boot aplicar às contas
+# existentes. Outra fica em /etc/skel para contas criadas futuramente.
+# -----------------------------------------------------------------------------
+RUN install -d -m 0755 \
+        /usr/share/gabriel-dotfiles/konsole \
+        /usr/share/gabriel-dotfiles/fastfetch \
+        /etc/skel/.local/share/konsole \
+        /etc/skel/.config/fastfetch
+
+COPY DarkPastels.colorscheme \
+    /usr/share/gabriel-dotfiles/konsole/DarkPastels.colorscheme
+COPY Gabriel.profile \
+    /usr/share/gabriel-dotfiles/konsole/Gabriel.profile
+COPY fastfetch-config.jsonc \
+    /usr/share/gabriel-dotfiles/fastfetch/config.jsonc
+
+COPY DarkPastels.colorscheme \
+    /etc/skel/.local/share/konsole/DarkPastels.colorscheme
+COPY Gabriel.profile \
+    /etc/skel/.local/share/konsole/Gabriel.profile
+COPY fastfetch-config.jsonc \
+    /etc/skel/.config/fastfetch/config.jsonc
+
+RUN printf '%s\n' \
+        '[Desktop Entry]' \
+        'DefaultProfile=Gabriel.profile' \
+        > /etc/skel/.config/konsolerc
+
+
+# -----------------------------------------------------------------------------
+# 9) Virtualização — GNOME Boxes, QEMU/KVM e libvirt
+#
+# Pacotes explícitos evitam depender dos metadados de grupos do DNF durante o
+# build da imagem.
+# -----------------------------------------------------------------------------
+RUN dnf5 install -y \
+        edk2-ovmf \
+        gnome-boxes \
+        libvirt-client \
+        libvirt-daemon-config-network \
+        libvirt-daemon-kvm \
+        qemu-kvm \
+        swtpm \
+        swtpm-tools \
+        virt-install \
+    && dnf5 clean all
+
+
+# -----------------------------------------------------------------------------
+# 10) Firewall
+#
+# Durante o build não há um systemd funcional. Por isso, a política é gravada
+# com firewall-offline-cmd.
+# -----------------------------------------------------------------------------
+RUN /bin/bash -c 'set -euxo pipefail; \
+    firewall-offline-cmd --set-default-zone=drop; \
+    if ! firewall-offline-cmd \
+        --zone=drop \
+        --query-service=dhcpv6-client; then \
+        firewall-offline-cmd \
+            --zone=drop \
+            --add-service=dhcpv6-client; \
+    fi'
+
+
+# -----------------------------------------------------------------------------
+# 11) qt-deepcool
+#
+# O binário é compilado no estágio separado. A regra udev e o serviço são
+# copiados, mas o serviço NÃO é habilitado globalmente.
+#
+# Na máquina que possui o watercooler:
+#   sudo systemctl enable --now deepcool-cli.service
+# -----------------------------------------------------------------------------
+COPY --from=deepcool-builder \
+    /usr/local/bin/deepcool-cli \
+    /usr/local/bin/deepcool-cli
+
+COPY --from=deepcool-builder \
+    /src/99-deepcool.rules \
+    /etc/udev/rules.d/99-deepcool.rules
+
+COPY deepcool-cli.service \
+    /etc/systemd/system/deepcool-cli.service
+
+RUN chmod 0755 /usr/local/bin/deepcool-cli \
+    && chmod 0644 \
+        /etc/udev/rules.d/99-deepcool.rules \
+        /etc/systemd/system/deepcool-cli.service
+
+
+# -----------------------------------------------------------------------------
+# 12) Metadados OCI
+#
+# O workflow do image-template acrescentará os metadados relacionados ao
+# repositório, commit e data do build.
+# -----------------------------------------------------------------------------
+LABEL org.opencontainers.image.title="aurora-gabriel" \
+      org.opencontainers.image.description="Imagem Aurora customizada para gaming, desenvolvimento e utilitários de sistema" \
+      org.opencontainers.image.base.name="ghcr.io/ublue-os/aurora-nvidia-open:stable"
+
+
+# -----------------------------------------------------------------------------
+# 13) Validação final bootc
+# -----------------------------------------------------------------------------
+RUN bootc container lint
