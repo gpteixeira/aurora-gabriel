@@ -33,10 +33,7 @@ SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 #    isso já quebrou um build nosso com "No match for argument: multimedia".
 #    Instalar os pacotes diretamente evita depender desses metadados opcionais.
 # -----------------------------------------------------------------------------
-RUN dnf install -y \
-        "https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-$(rpm -E %fedora).noarch.rpm" \
-        "https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-$(rpm -E %fedora).noarch.rpm" \
-    && dnf swap -y ffmpeg-free ffmpeg --allowerasing \
+RUN dnf swap -y ffmpeg-free ffmpeg --allowerasing \
     && dnf config-manager setopt fedora-cisco-openh264.enabled=1 \
     && dnf install -y \
         openh264 gstreamer1-plugin-openh264 \
