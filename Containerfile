@@ -19,14 +19,28 @@
 # existir separadamente (sua RTX 5080 precisa do módulo aberto da NVIDIA).
 FROM ghcr.io/ublue-os/aurora:stable AS base
 
+# Garante que falhas dentro de "curl ... | bash" (como nos instaladores do
+# oh-my-posh e rclone mais abaixo) realmente quebrem o build, em vez de
+# passar batido silenciosamente se o curl falhar mas o bash ainda "rodar".
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
 # -----------------------------------------------------------------------------
 # 1) RPM Fusion + codecs completos (ffmpeg de verdade, não o ffmpeg-free)
+#
+#    Nota: "dnf group upgrade multimedia" foi trocado por pacotes explícitos.
+#    Dentro de um build de container, os metadados de grupo (comps) nem
+#    sempre estão disponíveis da mesma forma que num sistema já instalado —
+#    isso já quebrou um build nosso com "No match for argument: multimedia".
+#    Instalar os pacotes diretamente evita depender desses metadados opcionais.
 # -----------------------------------------------------------------------------
 RUN dnf install -y \
         "https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-$(rpm -E %fedora).noarch.rpm" \
         "https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-$(rpm -E %fedora).noarch.rpm" \
     && dnf swap -y ffmpeg-free ffmpeg --allowerasing \
-    && dnf group upgrade -y multimedia \
+    && dnf config-manager setopt fedora-cisco-openh264.enabled=1 \
+    && dnf install -y \
+        openh264 gstreamer1-plugin-openh264 \
+        gstreamer1-plugins-ugly gstreamer1-plugins-bad-freeworld gstreamer1-libav \
     && dnf clean all
 
 # -----------------------------------------------------------------------------
