@@ -73,6 +73,21 @@ RUN rpm --import https://packages.microsoft.com/keys/microsoft.asc \
 RUN curl -s https://ohmyposh.dev/install.sh | bash -s -- -d /usr/local/bin \
     && curl https://rclone.org/install.sh | bash
 
+# Tema "Atomic" do oh-my-posh, fixado como padrão para QUALQUER usuário desta
+# imagem. Diferente do Konsole/fastfetch (que dependem de $HOME e por isso
+# precisam do script de primeiro boot), o prompt do bash é configurado via
+# /etc/profile.d/ — um script ali roda automaticamente pra todo mundo que
+# abrir um shell de login, sem precisar copiar nada pra pasta de ninguém.
+# Usamos o arquivo baixado localmente (não a URL remota) por recomendação da
+# própria documentação do oh-my-posh: evita depender de rede toda vez que um
+# terminal abre, e é mais rápido.
+RUN mkdir -p /usr/local/share/oh-my-posh/themes \
+    && curl -sL https://raw.githubusercontent.com/JanDeDobbeleer/oh-my-posh/main/themes/atomic.omp.json \
+        -o /usr/local/share/oh-my-posh/themes/atomic.omp.json
+RUN printf '#!/bin/bash\nif [ -t 1 ] && command -v oh-my-posh &> /dev/null; then\n    eval "$(oh-my-posh init bash --config /usr/local/share/oh-my-posh/themes/atomic.omp.json)"\nfi\n' \
+        > /etc/profile.d/gabriel-oh-my-posh.sh \
+    && chmod +x /etc/profile.d/gabriel-oh-my-posh.sh
+
 # Fonte Hack Nerd Font, instalada globalmente (system-wide) — equivalente ao
 # "oh-my-posh font install hack", mas de forma que funciona pra qualquer
 # usuário da imagem, não só quem rodar o instalador depois.
