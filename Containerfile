@@ -41,7 +41,13 @@ RUN dnf install -y \
     && dnf install -y \
         openh264 gstreamer1-plugin-openh264 \
         gstreamer1-plugins-ugly gstreamer1-plugins-bad-freeworld gstreamer1-libav \
+        libfdk-aac.x86_64 libfdk-aac.i686 \
     && dnf clean all
+# Nota: libfdk-aac.i686 explícito evita um bug antigo do RPM/DNF em que o
+# "Obsoletes" do libfdk-aac de 64 bits bloqueia a instalação da versão de
+# 32 bits (fdk-aac-free.i686) que o Steam precisa para a pilha de áudio
+# pipewire de 32 bits — mesmo sendo arquiteturas diferentes. Sem isso, o
+# "dnf install steam" da próxima etapa falha com um conflito de dependências.
 
 # -----------------------------------------------------------------------------
 # 2) Stack de gaming (Steam, MangoHud, GameMode, Gamescope, Wine)
