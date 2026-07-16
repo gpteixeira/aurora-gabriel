@@ -1,306 +1,208 @@
-# image-template
+# aurora-custom-gpteixeira
 
-This repository is meant to be a template for building your own custom [bootc](https://github.com/bootc-dev/bootc) image. This template is the recommended way to make customizations to any image published by the Universal Blue Project.
+Imagem Aurora (Universal Blue) customizada — bootc/OCI. Este documento
+descreve exatamente o que a imagem faz e como usá-la. Para tudo que for
+específico do **Aurora em si** (o que ele é, filosofia do projeto, como o
+sistema atômico funciona por baixo), a fonte oficial é:
 
-# Community
+- **Documentação oficial do Aurora**: <https://docs.getaurora.dev>
+- **Repositório oficial do Aurora**: <https://github.com/ublue-os/aurora>
+- **Universal Blue** (projeto guarda-chuva): <https://universal-blue.org>
 
-If you have questions about this template after following the instructions, try the following spaces:
-- [Universal Blue Forums](https://universal-blue.discourse.group/)
-- [Universal Blue Discord](https://discord.gg/WEu6BdFEtp)
-- [bootc discussion forums](https://github.com/bootc-dev/bootc/discussions) - This is not an Universal Blue managed space, but is an excellent resource if you run into issues with building bootc images.
+Este README cobre só a **camada customizada** por cima dessa base.
 
-# How to Use
+---
 
-To get started on your first bootc image, simply read and follow the steps in the next few headings.
-If you prefer instructions in video form, TesterTech created an excellent tutorial, embedded below.
+## O que esta imagem NÃO é
 
-[![Video Tutorial](https://img.youtube.com/vi/IxBl11Zmq5w/0.jpg)](https://www.youtube.com/watch?v=IxBl11Zmq5wE)
+Não gera uma ISO. Ela é uma **imagem de container bootc**, publicada no
+GHCR. Você instala o Aurora oficial (ISO padrão) e depois troca pra esta
+imagem com um único comando (`bootc switch`) — a partir daí, toda
+atualização futura já vem da sua receita, automaticamente.
 
-## Step 0: Prerequisites
+---
 
-These steps assume you have the following:
-- A Github Account
-- A machine running a bootc image (e.g. Bazzite, Bluefin, Aurora, or Fedora Atomic)
-- Experience installing and using CLI programs
+## O que está incluído na imagem (por seção do `Containerfile`)
 
-## Step 1: Preparing the Template
+### 0) Compilação isolada do `qt-deepcool`
+Compilado num estágio `fedora:44` separado (não fica no sistema final,
+só o binário resultante é copiado). Controla a tela do watercooler
+DeepCool MYSTIQUE. Referência configurável via `QT_DEEPCOOL_REF`
+(padrão: `main`; use um commit específico para builds 100% reprodutíveis).
 
-### Step 1a: Copying the Template
+### 1) Imagem-base
+`ghcr.io/ublue-os/aurora-nvidia-open:stable` — Aurora (KDE Plasma) com o
+driver **NVIDIA de código aberto** já embutido, adequado para a RTX 5080.
+Confira `sudo bootc status` na máquina de destino para garantir que essa é
+a variante certa antes de trocar.
 
-Select `Use this Template` on this page. You can set the name and description of your repository to whatever you would like, but all other settings should be left untouched.
+### 2) Dependências base
+`curl`, `git`, `gh`, `fastfetch`, `rclone`, `unzip`, `firewalld`,
+`qt6-qtbase`, `libusb1`, entre outras — ferramentas de sistema usadas pelo
+resto da imagem ou no dia a dia.
 
-Once you have finished copying the template, you need to enable the Github Actions workflows for your new repository.
-To enable the workflows, go to the `Actions` tab of the new repository and click the button to enable workflows.
+### 3) RPM Fusion + codecs multimídia
+Habilita RPM Fusion (free + nonfree). Faz uma checagem condicional antes de
+trocar `ffmpeg-free` por `ffmpeg` completo (evita erro caso o Aurora já
+tenha o ffmpeg completo por padrão). Habilita o repositório
+`fedora-cisco-openh264` e instala os plugins GStreamer necessários para
+H.264 e outros codecs. Instala `libfdk-aac` nas **duas arquiteturas**
+(x86_64 e i686) de propósito — evita um bug antigo do RPM/DNF em que o
+`Obsoletes` da versão de 64 bits bloqueia a versão de 32 bits que o Steam
+precisa.
 
-### Step 1b: Cloning the New Repository
+### 4) Stack de gaming
+Steam, MangoHud, GameMode, Gamescope, Wine, Winetricks, Vulkan Tools.
 
-Here I will defer to the much superior GitHub documentation on the matter. You can use whichever method is easiest.
-[GitHub Documentation](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository)
+### 5) Visual Studio Code
+Repositório oficial da Microsoft, chave GPG importada explicitamente para
+`/etc/pki/rpm-gpg/`.
 
-Once you have the repository on your local drive, proceed to the next step.
+### 6) Oh My Posh
+Binário baixado com versão fixada (`OH_MY_POSH_VERSION`), instalado em
+`/usr/bin` (não `/usr/local` — em sistemas bootc, `/usr/local` aponta para
+`/var/usrlocal`, que é estado da máquina, não da imagem). Tema **Atomic**
+baixado e fixado localmente em `/usr/share/oh-my-posh/themes/`. Um script
+em `/etc/profile.d/gabriel-oh-my-posh.sh` ativa o tema automaticamente para
+qualquer usuário que abrir um shell de login — sem precisar de passo extra
+no primeiro boot.
 
-## Step 2: Initial Setup
+### 7) Hack Nerd Font
+Baixada com versão fixada (`NERD_FONTS_VERSION`) e instalada globalmente em
+`/usr/share/fonts/`.
 
-### Step 2a: Creating a Cosign Key
+### 8) Dotfiles-modelo (Konsole + fastfetch)
+`DarkPastels.colorscheme` (esquema de cores do Konsole, 5% de
+transparência), `Gabriel.profile` (perfil apontando pra esse esquema +
+Hack Nerd Font 11pt) e `fastfetch-config.jsonc` ficam guardados em
+`/usr/share/gabriel-dotfiles/` (para o script de primeiro boot aplicar em
+contas já existentes) **e** em `/etc/skel/` (para contas novas criadas a
+partir desta imagem já nascerem configuradas).
 
-Container signing is important for end-user security and is enabled on all Universal Blue images. By default the image builds *will fail* if you don't.
+### 9) Virtualização
+GNOME Boxes, QEMU/KVM, libvirt, `swtpm` (TPM emulado — necessário para
+instalar Windows 11 em VM), `edk2-ovmf` (firmware UEFI para VMs).
 
-First, install the [cosign CLI tool](https://edu.chainguard.dev/open-source/sigstore/cosign/how-to-install-cosign/#installing-cosign-with-the-cosign-binary)
-With the cosign tool installed, run inside your repo folder:
+### 10) Firewall
+Política padrão nega entrada, libera saída — aplicada com
+`firewall-offline-cmd`, já que não há `systemd` rodando de verdade durante
+o build de uma imagem.
+
+### 11) qt-deepcool — binário final
+Binário copiado do estágio de build para `/usr/bin/deepcool-cli`. Regra de
+udev copiada para `/etc/udev/rules.d/`. O serviço systemd é copiado mas
+**nunca habilitado** na imagem — cada máquina decide, manualmente, se quer
+ativá-lo:
 
 ```bash
-COSIGN_PASSWORD="" cosign generate-key-pair
+sudo systemctl enable --now deepcool-cli.service
 ```
 
-The signing key will be used in GitHub Actions and will not work if it is password protected.
+Use isso **só** na máquina que tem o watercooler conectado de verdade
+(o desktop). Em qualquer outra máquina (como o laptop), deixe desativado.
 
-> [!WARNING]
-> Be careful to *never* accidentally commit `cosign.key` into your git repo. If this key goes out to the public, the security of your repository is compromised.
+### 12-13) Metadados e validação
+Labels OCI padrão, e `bootc container lint` — validação oficial do próprio
+projeto bootc, roda como última etapa do build e falha o build se algo
+estiver estruturalmente errado com a imagem.
 
-Next, you need to add the key to GitHub. This makes use of GitHub's secret signing system.
+---
 
-<details>
-    <summary>Using the Github Web Interface (preferred)</summary>
+## O que fica DE FORA da imagem (de propósito)
 
-Go to your repository settings, under `Secrets and Variables` -> `Actions`
-![image](https://user-images.githubusercontent.com/1264109/216735595-0ecf1b66-b9ee-439e-87d7-c8cc43c2110a.png)
-Add a new secret and name it `SIGNING_SECRET`, then paste the contents of `cosign.key` into the secret and save it. Make sure it's the .key file and not the .pub file. Once done, it should look like this:
-![image](https://user-images.githubusercontent.com/1264109/216735690-2d19271f-cee2-45ac-a039-23e6a4c16b34.png)
-</details>
-<details>
-<summary>Using the Github CLI</summary>
+| Item | Por quê | Onde vive |
+|---|---|---|
+| Rust (`rustup`), Flutter SDK | Precisam morar em `$HOME`, fora da imagem | `primeiro-boot-por-maquina.sh` |
+| MTU/DNS da conexão | Depende da rede física de cada máquina | `primeiro-boot-por-maquina.sh` |
+| Ativação do `deepcool-cli` | Só faz sentido na máquina com o hardware | Comando manual, uma vez, na máquina certa |
 
-If you have the `github-cli` installed, run:
+---
+
+## Como usar
+
+### 1. Instale o Aurora oficial primeiro
+Baixe a ISO oficial em <https://getaurora.dev> e instale normalmente — sem
+nenhuma customização ainda. Nada de especial nesse passo.
+
+> **Nota sobre testes em VM**: se for testar esta imagem numa VM (GNOME
+> Boxes, por exemplo), a variante `aurora-nvidia-open` funciona sem
+> travar — o driver NVIDIA simplesmente não encontra uma GPU real e não
+> carrega, sem quebrar o sistema. Mas ela baixa ~1-2 GB de driver que não
+> serve pra nada dentro da VM. Se quiser um teste mais leve e focado só na
+> customização (tema, apps, dev tools), use a variante sem NVIDIA
+> (`ghcr.io/ublue-os/aurora:stable`) pra instalar a ISO base na VM.
+
+### 2. Troque para esta imagem customizada
+```bash
+sudo bootc switch ghcr.io/gpteixeira/aurora-custom-gpteixeira:latest
+sudo reboot
+```
+
+### 3. Rode o script de primeiro boot (por máquina)
+```bash
+bash primeiro-boot-por-maquina.sh
+```
+
+Isso cobre Rust, Flutter, aplicação dos dotfiles no seu usuário (que já
+existia antes do `bootc switch`, então não foi alcançado por `/etc/skel`),
+e pergunta se aquela máquina específica deve ativar o `deepcool-cli`.
+
+---
+
+## Segurança da imagem (assinatura cosign)
+
+Todo build é assinado com `cosign`. Para verificar a assinatura de uma
+imagem publicada:
 
 ```bash
-gh secret set SIGNING_SECRET < cosign.key
+cosign verify --key cosign.pub ghcr.io/gpteixeira/aurora-custom-gpteixeira:latest
 ```
-</details>
 
-### Step 2b: Choosing Your Base Image
+A chave privada de assinatura fica só no GitHub Secret (`SIGNING_SECRET`),
+nunca no repositório. Só o `cosign.pub` (chave pública) é versionado.
 
-To choose a base image, simply modify the line in the container file starting with `FROM`. This will be the image your image derives from, and is your starting point for modifications.
-For a base image, you can choose any of the Universal Blue images or start from a Fedora Atomic system. Below this paragraph is a dropdown with a non-exhaustive list of potential base images.
+---
 
-<details>
-    <summary>Base Images</summary>
+## Atualizações automáticas
 
-- Bazzite: `ghcr.io/ublue-os/bazzite:stable`
-- Aurora: `ghcr.io/ublue-os/aurora:stable`
-- Bluefin: `ghcr.io/ublue-os/bluefin:stable`
-- Universal Blue Base: `ghcr.io/ublue-os/base-main:latest`
-- Fedora: `quay.io/fedora/fedora-bootc:44`
+O workflow de build roda:
+- **Automaticamente**, todo dia (agendado via `cron` em
+  `.github/workflows/build.yml` — horário em UTC, ajuste conforme
+  necessário para seu fuso).
+- **A cada `git push`** na branch `main`, imediatamente.
+- **Manualmente**, a qualquer momento, pelo botão "Run workflow" na aba
+  Actions (precisa de `workflow_dispatch:` habilitado no workflow).
 
-You can find more Universal Blue images on the [packages page](https://github.com/orgs/ublue-os/packages).
-</details>
+A imagem sempre baixa a versão mais recente do Aurora (`--pull=newer`) no
+momento do build — não existe "aviso" de quando o Aurora publica algo
+novo; é reconstrução periódica que garante isso na prática.
 
-If you don't know which image to pick, choosing the one your system is currently on is the best bet for a smooth transition. To find out what image your system currently uses, run the following command:
-```bash
-sudo bootc status
-```
-This will show you all the info you need to know about your current image. The image you are currently on is displayed after `Booted image:`. Paste that information after the `FROM` statement in the Containerfile to set it as your base image.
+No seu PC, o `bootc-fetch-apply-updates.timer` verifica periodicamente se
+a imagem publicada mudou e prepara a atualização para o próximo boot —
+sem aplicar nada sem você reiniciar quando quiser.
 
-### Step 2c: Changing Names
+---
 
-Change the `IMAGE_NAME` and `REPO_ORGANIZATION` variable inside the `image-template.env`
-
-To commit and push all the files changed and added in step 2 into your Github repository:
-```bash
-git add Containerfile image-template.env cosign.pub
-git commit -m "Initial Setup"
-git push
-```
-Once pushed, go look at the Actions tab on your Github repository's page.  The green checkmark should be showing on the top commit, which means your new image is ready!
-
-## Step 3: Switch to Your Image
-
-From your bootc system, run the following command substituting in your Github username and image name where noted.
-```bash
-sudo bootc switch ghcr.io/<username>/<image_name>
-```
-This should queue your image for the next reboot, which you can do immediately after the command finishes. You have officially set up your custom image! See the following section for an explanation of the important parts of the template for customization.
-
-# Repository Contents
-
-## Containerfile
-
-The [Containerfile](./Containerfile) defines the operations used to customize the selected image.This file is the entrypoint for your image build, and works exactly like a regular podman Containerfile. For reference, please see the [Podman Documentation](https://docs.podman.io/en/latest/Introduction.html).
-
-## build.sh
-
-The [build.sh](./build_files/build.sh) file is called from your Containerfile. It is the best place to install new packages or make any other customization to your system. There are customization examples contained within it for your perusal.
-
-## build.yml
-
-The [build.yml](./.github/workflows/build.yml) Github Actions workflow creates your custom OCI image and publishes it to the Github Container Registry (GHCR). By default, the image name will match the Github repository name.
-
-# Building Disk Images
-
-This template provides an out of the box workflow for creating disk images (ISO, qcow, raw) for your custom OCI image which can be used to directly install onto your machines.
-
-This template provides a way to upload the disk images that is generated from the workflow to a S3 bucket. The disk images will also be available as an artifact from the job, if you wish to use an alternate provider. To upload to S3 we use [rclone](https://rclone.org/) which is able to use [many S3 providers](https://rclone.org/s3/).
-
-## Setting Up ISO Builds
-
-The [build-disk.yml](./.github/workflows/build-disk.yml) Github Actions workflow creates a disk image from your OCI image by utilizing the [bootc-image-builder](https://osbuild.org/docs/bootc/). In order to use this workflow you must complete the following steps:
-
-1. Modify `disk_config/iso.toml` to point to your custom container image before generating an ISO image.
-2. If you changed your image name from the default in `build.yml` then in the `build-disk.yml` file edit the `IMAGE_REGISTRY`, `IMAGE_NAME` and `DEFAULT_TAG` environment variables with the correct values. If you did not make changes, skip this step.
-3. Finally, if you want to upload your disk images to S3 then you will need to add your S3 configuration to the repository's Action secrets. This can be found by going to your repository settings, under `Secrets and Variables` -> `Actions`. You will need to add the following
-  - `S3_PROVIDER` - Must match one of the values from the [supported list](https://rclone.org/s3/)
-  - `S3_BUCKET_NAME` - Your unique bucket name
-  - `S3_ACCESS_KEY_ID` - It is recommended that you make a separate key just for this workflow
-  - `S3_SECRET_ACCESS_KEY` - See above.
-  - `S3_REGION` - The region your bucket lives in. If you do not know then set this value to `auto`.
-  - `S3_ENDPOINT` - This value will be specific to the bucket as well.
-
-Once the workflow is done, you'll find the disk images either in your S3 bucket or as part of the summary under `Artifacts` after the workflow is completed.
-
-# Artifacthub
-
-This template comes with the necessary tooling to index your image on [artifacthub.io](https://artifacthub.io). Use the `artifacthub-repo.yml` file at the root to verify yourself as the publisher. This is important to you for a few reasons:
-
-- The value of artifacthub is it's one place for people to index their custom images, and since we depend on each other to learn, it helps grow the community. 
-- You get to see your pet project listed with the other cool projects in Cloud Native.
-- Since the site puts your README front and center, it's a good way to learn how to write a good README, learn some marketing, finding your audience, etc. 
-
-[Discussion Thread](https://universal-blue.discourse.group/t/listing-your-custom-image-on-artifacthub/6446)
-
-# Justfile Documentation
-
-The `Justfile` contains various commands and configurations for building and managing container images and virtual machine images using Podman and other utilities.
-To use it, you must have installed [just](https://just.systems/man/en/introduction.html) from your package manager or manually. It is available by default on all Universal Blue images.
-
-## Environment Variables
-
-These are all sourced from the `image-template.env` file.
-
-- `image_name`: The name of the image (default: "image-template").
-- `default_tag`: The default tag for the image (default: "latest").
-- `bib_image`: The Bootc Image Builder (BIB) image (default: "quay.io/centos-bootc/bootc-image-builder:latest").
-
-## Building The Image
-
-All these recipes will work (with default values) without supplying any arguments to them, e.g. `just build`
-
-### `just build`
-
-Builds a container image using Podman.
+## Testando antes de aplicar numa máquina real
 
 ```bash
-just build $target_image $tag
+just build
+just build-qcow2
+just run-vm-qcow2
 ```
 
-Arguments:
-- `$target_image`: The tag you want to apply to the image (default: `$image_name`).
-- `$tag`: The tag for the image (default: `$default_tag`).
+Builda localmente e sobe uma VM a partir da imagem, sem depender do
+GitHub Actions nem arriscar uma máquina real.
 
-### Rechunking
-We can flatten the layers of container images to make sure there isn't a single huge layer when your image gets published.
-This does not make your image faster to download, just provides better resumability.
+---
 
-#### `just ostree-rechunk`
-Rechunks the existing Image with [rpm-ostree](https://coreos.github.io/rpm-ostree/build-chunked-oci/)
+## Segurança do repositório
 
-```bash
-just ostree-rechunk $target_image $tag
-```
+Para garantir que nenhum commit chegue à branch `main` sem sua autorização
+explícita (incluindo PRs automáticos do Dependabot):
 
-#### `just rechunk`
-Rechunks the existing Image with [chunkah](https://github.com/coreos/chunkah), this is probably gonna be the default here at some point, try it out, it's cool.
+**Settings → Branches → Add rule** para `main`, marque **"Restrict who can
+push to matching branches"** e liste apenas seu usuário. Opcionalmente,
+em **Settings → General → Pull Requests**, confirme que **"Allow
+auto-merge"** está desmarcado.
 
-```bash
-just rechunk $target_image $tag
-```
-
-### Switching to the locally built image for testing
-
-The image has to be in the containers-storage owned by root, to be able to rebase to it, see the `_rootful_load_image` recipe.
-
-`sudo just build` and `sudo just ostree-rechunk` builds directly as root and allows you to skip the transfer to the root containers-storage.
-
-You can rebase to all the images that are in your containers-storage:
-
-```
-sudo podman image list --filter=label=containers.bootc=1
-```
-
-See [man bootc switch](https://bootc.dev/bootc/man/bootc-switch.8.html) for more info.
-
-```
-sudo bootc switch --transport containers-storage localhost/myimage:latest
-```
-
-and reboot your system!
-
-## Building and Running Virtual Machines and ISOs
-
-The below commands all build QCOW2 images. To produce or use a different type of image, substitute in the command with that type in the place of `qcow2`. The available types are `qcow2`, `iso`, and `raw`.
-
-### `just build-qcow2`
-
-Builds a QCOW2 virtual machine image.
-
-```bash
-just build-qcow2 $target_image $tag
-```
-
-### `just rebuild-qcow2`
-
-Rebuilds a QCOW2 virtual machine image.
-
-```bash
-just rebuild-vm $target_image $tag
-```
-
-### `just run-vm-qcow2`
-
-Runs a virtual machine from a QCOW2 image.
-
-```bash
-just run-vm-qcow2 $target_image $tag
-```
-
-### `just spawn-vm`
-
-Runs a virtual machine using systemd-vmspawn.
-
-```bash
-just spawn-vm rebuild="0" type="qcow2" ram="6G"
-```
-
-## File Management
-
-### `just check`
-
-Checks the syntax of all `.just` files and the `Justfile`.
-
-### `just fix`
-
-Fixes the syntax of all `.just` files and the `Justfile`.
-
-### `just clean`
-
-Cleans the repository by removing build artifacts.
-
-### `just lint`
-
-Runs shell check on all Bash scripts.
-
-### `just format`
-
-Runs shfmt on all Bash scripts.
-
-## Additional resources
-
-For additional driver support, ublue maintains a set of scripts and container images available at [ublue-akmod](https://github.com/ublue-os/akmods). These images include the necessary scripts to install multiple kernel drivers within the container (Nvidia, OpenRazer, Framework...). The documentation provides guidance on how to properly integrate these drivers into your container image.
-
-## Community Examples
-
-These are images derived from this template (or similar enough to this template). Reference them when building your image!
-
-- [m2Giles' OS](https://github.com/m2giles/m2os)
-- [bOS](https://github.com/bsherman/bos)
-- [Homer](https://github.com/bketelsen/homer/)
-- [Amy OS](https://github.com/astrovm/amyos)
-- [VeneOS](https://github.com/Venefilyn/veneos)
