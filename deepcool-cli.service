@@ -4,7 +4,7 @@ After=multi-user.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/deepcool-cli --mode cpu --interval 1000 --rotate 270
+ExecStart=/usr/bin/deepcool-cli --mode cpu --interval 1000 --rotate 270
 Restart=on-failure
 RestartSec=5
 
@@ -21,3 +21,4 @@ SyslogIdentifier=deepcool-cli
 
 [Install]
 WantedBy=multi-user.target
+
