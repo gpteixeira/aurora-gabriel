@@ -160,23 +160,48 @@ RUN /bin/bash -c 'set -euxo pipefail; \
 # -----------------------------------------------------------------------------
 # 6) Oh My Posh
 #
-# O binário e o tema são fixados por versão para evitar que o mesmo commit da
-# imagem produza resultados diferentes em builds futuros.
+# Em imagens Atomic/bootc, /usr/local aponta para /var/usrlocal. Como /var é
+# estado persistente da máquina e não pertence à composição atualizável da
+# imagem, binários fornecidos por esta imagem devem ficar em /usr/bin e seus
+# dados compartilhados em /usr/share.
+#
+# O download é feito primeiro em /tmp e somente depois instalado no destino.
+# Isso evita deixar um binário parcial caso a transferência falhe.
 # -----------------------------------------------------------------------------
 RUN /bin/bash -c 'set -euxo pipefail; \
-    curl -fsSL \
+    curl \
+        --fail \
+        --show-error \
+        --location \
+        --retry 3 \
+        --retry-all-errors \
         "https://github.com/JanDeDobbeleer/oh-my-posh/releases/download/v${OH_MY_POSH_VERSION}/posh-linux-amd64" \
-        -o /usr/local/bin/oh-my-posh; \
-    chmod 0755 /usr/local/bin/oh-my-posh; \
-    install -d -m 0755 /usr/local/share/oh-my-posh/themes; \
-    curl -fsSL \
+        -o /tmp/oh-my-posh; \
+    install -Dm0755 \
+        /tmp/oh-my-posh \
+        /usr/bin/oh-my-posh; \
+    install -d -m 0755 \
+        /usr/share/oh-my-posh/themes; \
+    curl \
+        --fail \
+        --show-error \
+        --location \
+        --retry 3 \
+        --retry-all-errors \
         "https://raw.githubusercontent.com/JanDeDobbeleer/oh-my-posh/v${OH_MY_POSH_VERSION}/themes/atomic.omp.json" \
-        -o /usr/local/share/oh-my-posh/themes/atomic.omp.json'
+        -o /tmp/atomic.omp.json; \
+    install -Dm0644 \
+        /tmp/atomic.omp.json \
+        /usr/share/oh-my-posh/themes/atomic.omp.json; \
+    rm -f \
+        /tmp/oh-my-posh \
+        /tmp/atomic.omp.json; \
+    /usr/bin/oh-my-posh version'
 
 RUN printf '%s\n' \
         '#!/bin/bash' \
         'if [ -n "${BASH_VERSION:-}" ] && [ -t 1 ] && command -v oh-my-posh >/dev/null 2>&1; then' \
-        '    eval "$(oh-my-posh init bash --config /usr/local/share/oh-my-posh/themes/atomic.omp.json)"' \
+        '    eval "$(oh-my-posh init bash --config /usr/share/oh-my-posh/themes/atomic.omp.json)"' \
         'fi' \
         > /etc/profile.d/gabriel-oh-my-posh.sh \
     && chmod 0755 /etc/profile.d/gabriel-oh-my-posh.sh
@@ -278,7 +303,7 @@ RUN /bin/bash -c 'set -euxo pipefail; \
 # -----------------------------------------------------------------------------
 COPY --from=deepcool-builder \
     /usr/local/bin/deepcool-cli \
-    /usr/local/bin/deepcool-cli
+    /usr/bin/deepcool-cli
 
 COPY --from=deepcool-builder \
     /src/99-deepcool.rules \
@@ -287,7 +312,7 @@ COPY --from=deepcool-builder \
 COPY deepcool-cli.service \
     /etc/systemd/system/deepcool-cli.service
 
-RUN chmod 0755 /usr/local/bin/deepcool-cli \
+RUN chmod 0755 /usr/bin/deepcool-cli \
     && chmod 0644 \
         /etc/udev/rules.d/99-deepcool.rules \
         /etc/systemd/system/deepcool-cli.service
