@@ -98,13 +98,18 @@ jobs:
             ${DEFAULT_TAG} \
             ${{ matrix.containerfile }}
 
-      # This is optional, this provides smaller delta updates
-      - name: Rechunk with rpm-ostree
-        id: rechunk
-        run: |
-          sudo -E $(command -v just) ostree-rechunk \
-            ${IMAGE_NAME} \
-            ${DEFAULT_TAG}
+      # This is optional, this provides smaller delta updates.
+      # DESATIVADO: bug de compatibilidade entre containers-storage e
+      # overlayfs aninhado (container rodando dentro de container) nesse
+      # ambiente de CI especificamente — não afeta a corretude da imagem
+      # final, só o tamanho das atualizações futuras. Ver discussão
+      # relacionada em https://github.com/coreos/rpm-ostree/issues/4283
+      # - name: Rechunk with rpm-ostree
+      #   id: rechunk
+      #   run: |
+      #     sudo -E $(command -v just) ostree-rechunk \
+      #       ${IMAGE_NAME} \
+      #       ${DEFAULT_TAG}
 
       # If you are feeling adventurous, use the new distro agnostic rechunker
       # https://github.com/coreos/chunkah
