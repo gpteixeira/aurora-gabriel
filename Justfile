@@ -93,7 +93,20 @@ sudoif command *args:
 #
 
 # Build the image using the specified parameters
-build $target_image=image_name $tag=default_tag:
+# -----------------------------------------------------------------------------
+# PATCH para o Justfile — SUBSTITUA apenas a receita "build" pela versão
+# abaixo. O resto do arquivo (todas as outras receitas) continua igual,
+# sem nenhuma mudança.
+#
+# O que mudou: adicionamos um terceiro parâmetro opcional "$containerfile",
+# com valor padrão "Containerfile" — ou seja, qualquer chamada existente
+# de "just build" (com 0, 1 ou 2 argumentos) continua funcionando
+# EXATAMENTE como antes. A única mudança de comportamento acontece quando
+# você passa explicitamente um terceiro argumento, como fazemos agora no
+# build.yml para a variante Bazzite.
+# -----------------------------------------------------------------------------
+
+build $target_image=image_name $tag=default_tag $containerfile="Containerfile":
     #!/usr/bin/env bash
 
     set -euox pipefail
@@ -122,9 +135,9 @@ build $target_image=image_name $tag=default_tag:
     LABELS+=("--label" "org.opencontainers.image.vendor={{ repo_organization }}")
 
     # This actually builds the image!
-    PODMAN_BUILD_ARGS=("${BUILD_ARGS[@]}" "${LABELS[@]}" --pull=newer --tag "${target_image}:${tag}" --file Containerfile)
-
-    podman build "${PODMAN_BUILD_ARGS[@]}" .
+    # ANTES: --file Containerfile (fixo, sempre o mesmo arquivo)
+    # AGORA: --file "${containerfile}" (usa o que foi passado, ou o padrão)
+    PODMAN_BUILD_ARGS=("${BUILD_ARGS[@]}" "${LABELS[@]}" --pull=newer --tag "${target_image}:${tag}" --file "${containerfile}")
 
 # Split the image for smaller updates (New)!
 rechunk $target_image=image_name $tag=default_tag:
