@@ -4,13 +4,23 @@ name: Build disk images
 on:
   workflow_dispatch:
     inputs:
+      image_name:
+        description: "Container image to convert"
+        required: true
+        default: aurora-custom-gpteixeira
+        type: choice
+        options:
+          - aurora-custom-gpteixeira
+          - bazzite-gabriel
       upload-to-s3:
         description: "Upload to S3"
         required: false
         default: false
         type: boolean
       platform:
+        description: "Runner architecture"
         required: true
+        default: amd64
         type: choice
         options:
           - amd64
@@ -19,24 +29,26 @@ on:
     branches:
       - main
     paths:
-      - './disk_config/disk.toml'
-      - './disk_config/iso.toml'
+      - './disk_config/*.toml'
       - './.github/workflows/build-disk.yml'
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref || github.run_id }}-${{ inputs.image_name || 'aurora-custom-gpteixeira' }}
+  cancel-in-progress: true
+
 env:
-  IMAGE_NAME: ${{ github.event.repository.name }} # output of build.yml, keep in sync
-  IMAGE_REGISTRY: "ghcr.io/${{ github.repository_owner }}"  # do not edit
+  IMAGE_NAME: ${{ inputs.image_name || 'aurora-custom-gpteixeira' }}
+  IMAGE_REGISTRY: "ghcr.io/${{ github.repository_owner }}"
   DEFAULT_TAG: "latest"
   BIB_IMAGE: "quay.io/centos-bootc/bootc-image-builder:latest"
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref || github.run_id }}
-  cancel-in-progress: true
-
 jobs:
   build:
-    name: Build disk images
-    runs-on: ${{ inputs.platform == 'amd64' && 'ubuntu-24.04' || 'ubuntu-24.04-arm' }}
+    name: Build ${{ matrix.disk-type }} for ${{ inputs.image_name || 'aurora-custom-gpteixeira' }}
+    runs-on: ${{ inputs.platform == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
     strategy:
       fail-fast: false
       matrix:
@@ -47,26 +59,50 @@ jobs:
       id-token: write
 
     steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+
       - name: Prepare environment
+        shell: bash
         run: |
+          set -euo pipefail
+
           USER_UID=$(id -u)
           USER_GID=$(id -g)
-          # Concatenate the types with a hyphen
           DISK_TYPE=$(echo "${{ matrix.disk-type }}" | tr ' ' '-')
-          # Lowercase the image uri
-          echo "IMAGE_REGISTRY=${IMAGE_REGISTRY,,}" >> ${GITHUB_ENV}
-          echo "IMAGE_NAME=${IMAGE_NAME,,}" >> ${GITHUB_ENV}
-          echo "DISK_TYPE=${DISK_TYPE}" >> ${GITHUB_ENV}
-          echo "USER_UID=${USER_UID}" >> ${GITHUB_ENV}
-          echo "USER_GID=${USER_GID}" >> ${GITHUB_ENV}
+
+          IMAGE_REGISTRY=${IMAGE_REGISTRY,,}
+          IMAGE_NAME=${IMAGE_NAME,,}
+
+          case "${IMAGE_NAME}" in
+            aurora-custom-gpteixeira)
+              ISO_CONFIG=./disk_config/iso-kde.toml
+              ;;
+            bazzite-gabriel)
+              ISO_CONFIG=./disk_config/iso-bazzite-kde.toml
+              ;;
+            *)
+              echo "Unsupported image: ${IMAGE_NAME}" >&2
+              exit 1
+              ;;
+          esac
+
+          test -f "${ISO_CONFIG}"
+          test -f ./disk_config/disk.toml
+
+          echo "IMAGE_REGISTRY=${IMAGE_REGISTRY}" >> "${GITHUB_ENV}"
+          echo "IMAGE_NAME=${IMAGE_NAME}" >> "${GITHUB_ENV}"
+          echo "ISO_CONFIG=${ISO_CONFIG}" >> "${GITHUB_ENV}"
+          echo "DISK_TYPE=${DISK_TYPE}" >> "${GITHUB_ENV}"
+          echo "USER_UID=${USER_UID}" >> "${GITHUB_ENV}"
+          echo "USER_GID=${USER_GID}" >> "${GITHUB_ENV}"
 
       - name: Install dependencies
         if: inputs.platform == 'arm64'
         run: |
-          set -x
-          sudo apt update -y
-          sudo apt install -y \
-            podman
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y podman
 
       - name: Maximize build space
         if: inputs.platform != 'arm64'
@@ -74,30 +110,28 @@ jobs:
         with:
           remove-codeql: true
 
-      - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-
-      - name: Build disk images
+      - name: Build disk image
         id: build
         uses: osbuild/bootc-image-builder-action@30960621b85c9e76c653082f9ef4cab5a10210d5 # main
         with:
           builder-image: ${{ env.BIB_IMAGE }}
-          config-file: ${{ matrix.disk-type == 'anaconda-iso' && './disk_config/iso.toml' || './disk_config/disk.toml' }}
+          config-file: ${{ matrix.disk-type == 'anaconda-iso' && env.ISO_CONFIG || './disk_config/disk.toml' }}
           image: ${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.DEFAULT_TAG }}
           chown: ${{ env.USER_UID }}:${{ env.USER_GID }}
           types: ${{ matrix.disk-type }}
           additional-args: --use-librepo=True
 
-      - name: Upload disk images and Checksum to Job Artifacts
+      - name: Upload disk image and checksum
         if: inputs.upload-to-s3 != true && github.event_name != 'pull_request'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
+          name: ${{ env.IMAGE_NAME }}-${{ env.DISK_TYPE }}-${{ inputs.platform || 'amd64' }}
           path: ${{ steps.build.outputs.output-directory }}
           if-no-files-found: error
-          retention-days: 0
+          retention-days: 7
           compression-level: 0
-          overwrite: true
-      
+          overwrite: false
+
       - name: Upload to S3
         if: inputs.upload-to-s3 == true && github.event_name != 'pull_request'
         shell: bash
@@ -110,6 +144,7 @@ jobs:
           RCLONE_CONFIG_S3_ENDPOINT: ${{ secrets.S3_ENDPOINT }}
           SOURCE_DIR: ${{ steps.build.outputs.output-directory }}
         run: |
+          set -euo pipefail
           sudo apt-get update
           sudo apt-get install -y rclone
-          rclone copy $SOURCE_DIR S3:${{ secrets.S3_BUCKET_NAME }}
+          rclone copy "${SOURCE_DIR}" "S3:${{ secrets.S3_BUCKET_NAME }}/${IMAGE_NAME}/${DISK_TYPE}/"

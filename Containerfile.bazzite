@@ -90,7 +90,7 @@ RUN dnf5 install -y \
 # -----------------------------------------------------------------------------
 # 3) RPM Fusion e codecs multimídia
 #
-# O Aurora normalmente já traz o ffmpeg completo. Esta verificação evita que
+# O Bazzite normalmente já traz o ffmpeg completo. Esta verificação evita que
 # "dnf5 swap ffmpeg-free ffmpeg" falhe quando ffmpeg já estiver instalado.
 # -----------------------------------------------------------------------------
 RUN /bin/bash -c 'set -euxo pipefail; \

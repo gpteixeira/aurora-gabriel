@@ -91,52 +91,53 @@ sudoif command *args:
 #
 # This will build an image 'myimage:mytag'
 #
-# Build the image using the specified parameters
-# -----------------------------------------------------------------------------
-# PATCH para o Justfile — SUBSTITUA apenas a receita "build" pela versão
-# abaixo. O resto do arquivo (todas as outras receitas) continua igual,
-# sem nenhuma mudança.
-#
-# O que mudou: adicionamos um terceiro parâmetro opcional "$containerfile",
-# com valor padrão "Containerfile" — ou seja, qualquer chamada existente
-# de "just build" (com 0, 1 ou 2 argumentos) continua funcionando
-# EXATAMENTE como antes. A única mudança de comportamento acontece quando
-# você passa explicitamente um terceiro argumento, como fazemos agora no
-# build.yml para a variante Bazzite.
-# -----------------------------------------------------------------------------
-
-build $target_image=image_name $tag=default_tag $containerfile="Containerfile":
+# Build the image using the specified parameters.
+# The optional third and fourth parameters allow the matrix workflow to build
+# different image variants without duplicating the recipe.
+build $target_image=image_name $tag=default_tag $containerfile="Containerfile" $description=image_desc:
     #!/usr/bin/env bash
 
-    set -euox pipefail
+    set -euo pipefail
+
+    if [[ ! -f "${containerfile}" ]]; then
+        echo "Containerfile not found: ${containerfile}" >&2
+        exit 1
+    fi
 
     BUILD_ARGS=()
     LABELS=()
+    REPOSITORY_NAME="$(basename "$(git rev-parse --show-toplevel)")"
+
     if [[ -z "$(git status -s)" ]]; then
         GIT_SHA=$(git rev-parse --short HEAD)
-        LABELS+=("--label" "io.artifacthub.package.readme-url=https://raw.githubusercontent.com/{{ repo_organization }}/{{ image_name }}/${GIT_SHA}/README.md")
-        LABELS+=("--label" "org.opencontainers.image.documentation=https://raw.githubusercontent.com/{{ repo_organization }}/{{ image_name }}/${GIT_SHA}/README.md")
-        LABELS+=("--label" "org.opencontainers.image.source=https://github.com/{{ repo_organization }}/{{ image_name }}/blob/${GIT_SHA}/Containerfile")
-        LABELS+=("--label" "org.opencontainers.image.url=https://github.com/{{ repo_organization }}/{{ image_name }}/tree/${GIT_SHA}")
-        LABELS+=("--label" "org.opencontainers.image.version={{ default_tag }}.$(date +%Y%m%d)-${GIT_SHA}")
+        LABELS+=("--label" "io.artifacthub.package.readme-url=https://raw.githubusercontent.com/{{ repo_organization }}/${REPOSITORY_NAME}/${GIT_SHA}/README.md")
+        LABELS+=("--label" "org.opencontainers.image.documentation=https://raw.githubusercontent.com/{{ repo_organization }}/${REPOSITORY_NAME}/${GIT_SHA}/README.md")
+        LABELS+=("--label" "org.opencontainers.image.source=https://github.com/{{ repo_organization }}/${REPOSITORY_NAME}/blob/${GIT_SHA}/${containerfile}")
+        LABELS+=("--label" "org.opencontainers.image.url=https://github.com/{{ repo_organization }}/${REPOSITORY_NAME}/tree/${GIT_SHA}")
+        LABELS+=("--label" "org.opencontainers.image.revision=${GIT_SHA}")
+        LABELS+=("--label" "org.opencontainers.image.version=${tag}.$(date +%Y%m%d)-${GIT_SHA}")
     fi
 
-    # Image metadata for https://artifacthub.io/ - This is optional but is highly recommended so we all can get a index of all the custom images
-    # The metadata by itself is not going to do anything, you choose if you want your image to be on ArtifactHub or not.
     LABELS+=("--label" "io.artifacthub.package.deprecated=false")
     LABELS+=("--label" "io.artifacthub.package.keywords={{ image_keywords }}")
     LABELS+=("--label" "io.artifacthub.package.license=Apache-2.0")
     LABELS+=("--label" "io.artifacthub.package.logo-url={{ image_logo_url }}")
     LABELS+=("--label" "io.artifacthub.package.prerelease=false")
-    LABELS+=("--label" "org.opencontainers.image.created=$(date -u +%Y\-%m\-%d\T%H\:%M\:%S\Z)")
-    LABELS+=("--label" "org.opencontainers.image.description={{ image_desc }}")
-    LABELS+=("--label" "org.opencontainers.image.title={{ image_name }}")
+    LABELS+=("--label" "org.opencontainers.image.created=$(date -u +%Y-%m-%dT%H:%M:%SZ)")
+    LABELS+=("--label" "org.opencontainers.image.description=${description}")
+    LABELS+=("--label" "org.opencontainers.image.title=${target_image}")
     LABELS+=("--label" "org.opencontainers.image.vendor={{ repo_organization }}")
 
-    # This actually builds the image!
-    # ANTES: --file Containerfile (fixo, sempre o mesmo arquivo)
-    # AGORA: --file "${containerfile}" (usa o que foi passado, ou o padrão)
-    PODMAN_BUILD_ARGS=("${BUILD_ARGS[@]}" "${LABELS[@]}" --pull=newer --tag "${target_image}:${tag}" --file "${containerfile}")
+    PODMAN_BUILD_ARGS=(
+        "${BUILD_ARGS[@]}"
+        "${LABELS[@]}"
+        --pull=newer
+        --tag "${target_image}:${tag}"
+        --file "${containerfile}"
+    )
+
+    podman build "${PODMAN_BUILD_ARGS[@]}" .
+    podman image exists "${target_image}:${tag}"
 
 # Split the image for smaller updates (New)!
 rechunk $target_image=image_name $tag=default_tag:
@@ -158,19 +159,8 @@ rechunk $target_image=image_name $tag=default_tag:
     --label ostree.commit- --label ostree.final-diffid- \
     --tag "${target_image}:${tag}" | podman load
 
-# -----------------------------------------------------------------------------
-# PATCH para o Justfile — SUBSTITUA apenas a receita "ostree-rechunk" pela
-# versão abaixo. A ÚNICA mudança real é a linha do "--from": adicionamos o
-# prefixo "containers-storage:" nela, igual o "--output" já tinha.
-#
-# Por quê: sem o prefixo, a ferramenta interpreta "localhost/imagem:tag"
-# como "vá buscar num registro remoto chamado localhost" (tenta bater em
-# https://localhost/v2/, dá "connection refused"), em vez de "essa imagem
-# já está salva localmente no containers-storage". É um bug conhecido e
-# documentado do ecossistema containers/image, não específico do seu setup
-# — achei até uma issue idêntica no próprio Bluefin da Universal Blue.
-# -----------------------------------------------------------------------------
-
+# The classical rpm-ostree rechunker must address the local Podman store
+# explicitly through the containers-storage transport.
 # Split the image for smaller updates (Classical)!
 ostree-rechunk $target_image=image_name $tag=default_tag:
     #!/usr/bin/env bash
@@ -233,18 +223,20 @@ generate-build-tags $target_image=image_name $tag=default_tag:
 [group('Utility')]
 tag-images $target_image=image_name $tag=default_tag tags="":
     #!/usr/bin/env bash
-    set -eoux pipefail
+    set -euo pipefail
 
-    # Get Image, and untag
-    IMAGE=$(podman inspect ${target_image}:${tag} | jq -r .[].Id)
-    podman untag ${IMAGE}
+    if ! podman image exists "${target_image}:${tag}"; then
+        echo "Built image not found: ${target_image}:${tag}" >&2
+        exit 1
+    fi
 
-    # Tag Image
-    for tag in {{ tags }}; do
-        podman tag $IMAGE "${target_image}:${tag}"
+    IMAGE=$(podman image inspect "${target_image}:${tag}" | jq -er '.[0].Id')
+    podman untag "${IMAGE}"
+
+    for alias_tag in {{ tags }}; do
+        podman tag "${IMAGE}" "${target_image}:${alias_tag}"
     done
 
-    # Show Images
     podman images
 
 # Image Name
@@ -363,7 +355,7 @@ build-raw $target_image=("localhost/" + image_name) $tag=default_tag: && (_build
 
 # Build an ISO virtual machine image
 [group('Build Virtal Machine Image')]
-build-iso $target_image=("localhost/" + image_name) $tag=default_tag: && (_build-bib target_image tag "iso" "disk_config/iso.toml")
+build-iso $target_image=("localhost/" + image_name) $tag=default_tag: && (_build-bib target_image tag "iso" "disk_config/iso-kde.toml")
 
 # Rebuild a QCOW2 virtual machine image
 [group('Build Virtal Machine Image')]
@@ -375,7 +367,7 @@ rebuild-raw $target_image=("localhost/" + image_name) $tag=default_tag: && (_reb
 
 # Rebuild an ISO virtual machine image
 [group('Build Virtal Machine Image')]
-rebuild-iso $target_image=("localhost/" + image_name) $tag=default_tag: && (_rebuild-bib target_image tag "iso" "disk_config/iso.toml")
+rebuild-iso $target_image=("localhost/" + image_name) $tag=default_tag: && (_rebuild-bib target_image tag "iso" "disk_config/iso-kde.toml")
 
 # Run a virtual machine with the specified image type and configuration
 _run-vm $target_image $tag $type $config:
@@ -429,7 +421,7 @@ run-vm-raw $target_image=("localhost/" + image_name) $tag=default_tag: && (_run-
 
 # Run a virtual machine from an ISO
 [group('Run Virtal Machine')]
-run-vm-iso $target_image=("localhost/" + image_name) $tag=default_tag: && (_run-vm target_image tag "iso" "disk_config/iso.toml")
+run-vm-iso $target_image=("localhost/" + image_name) $tag=default_tag: && (_run-vm target_image tag "iso" "disk_config/iso-kde.toml")
 
 # Run a virtual machine using systemd-vmspawn
 [group('Run Virtal Machine')]

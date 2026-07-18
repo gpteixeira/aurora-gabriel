@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Configuração inicial Gabriel
+Comment=Configura ferramentas e preferências específicas desta máquina
+Exec=/usr/share/gabriel-dotfiles/first-boot-launcher.sh
+Terminal=false
+OnlyShowIn=KDE;
+X-KDE-autostart-after=panel
+X-GNOME-Autostart-enabled=true
+NoDisplay=true

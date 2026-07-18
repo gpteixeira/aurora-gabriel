@@ -257,6 +257,22 @@ RUN printf '%s\n' \
 
 
 # -----------------------------------------------------------------------------
+# 8.1) Configuração inicial automática, uma vez por usuário/máquina
+# -----------------------------------------------------------------------------
+COPY primeiro-boot-por-maquina.sh \
+    /usr/share/gabriel-dotfiles/primeiro-boot-por-maquina.sh
+COPY first-boot-launcher.sh \
+    /usr/share/gabriel-dotfiles/first-boot-launcher.sh
+COPY gabriel-first-boot.desktop \
+    /etc/xdg/autostart/gabriel-first-boot.desktop
+
+RUN chmod 0755 \
+        /usr/share/gabriel-dotfiles/primeiro-boot-por-maquina.sh \
+        /usr/share/gabriel-dotfiles/first-boot-launcher.sh \
+    && chmod 0644 /etc/xdg/autostart/gabriel-first-boot.desktop
+
+
+# -----------------------------------------------------------------------------
 # 9) Virtualização — VirtualBox
 #
 # RPM Fusion já foi habilitado na Seção 3 (codecs) — não precisa repetir
@@ -318,7 +334,7 @@ RUN chmod 0755 /usr/bin/deepcool-cli \
 # O workflow do image-template acrescentará os metadados relacionados ao
 # repositório, commit e data do build.
 # -----------------------------------------------------------------------------
-LABEL org.opencontainers.image.title="aurora-gabriel" \
+LABEL org.opencontainers.image.title="aurora-custom-gpteixeira" \
       org.opencontainers.image.description="Imagem Aurora customizada para gaming, desenvolvimento e utilitários de sistema" \
       org.opencontainers.image.base.name="ghcr.io/ublue-os/aurora-nvidia-open:stable"
 

@@ -17,7 +17,7 @@ env:
 
 jobs:
   build_push:
-    name: Build and push image
+    name: Build and push ${{ matrix.image_name }}
     runs-on: ubuntu-24.04
 
     # O bloco "concurrency" precisa estar AQUI (nível do job), não lá no
@@ -49,8 +49,12 @@ jobs:
         include:
           - image_name: aurora-custom-gpteixeira
             containerfile: Containerfile
+            image_description: >-
+              Imagem Aurora customizada para gaming, desenvolvimento e utilitários de sistema
           - image_name: bazzite-gabriel
             containerfile: Containerfile.bazzite
+            image_description: >-
+              Imagem Bazzite customizada para desenvolvimento e utilitários de sistema
 
     steps:
       # These stage versions are pinned by https://github.com/renovatebot/renovate
@@ -67,6 +71,23 @@ jobs:
         shell: bash
         run: |
           just check
+
+      - name: Validate build inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f "${{ matrix.containerfile }}"
+          for file in \
+            DarkPastels.colorscheme \
+            Gabriel.profile \
+            fastfetch-config.jsonc \
+            deepcool-cli.service \
+            primeiro-boot-por-maquina.sh \
+            first-boot-launcher.sh \
+            gabriel-first-boot.desktop; do
+            test -f "${file}" || { echo "Required build file missing: ${file}" >&2; exit 1; }
+          done
+          bash -n primeiro-boot-por-maquina.sh first-boot-launcher.sh
 
       - name: Image Name
         id: image-name
@@ -93,10 +114,19 @@ jobs:
       - name: Build Image
         id: build-image
         run: |
-          sudo -E $(command -v just) build \
-            ${IMAGE_NAME} \
-            ${DEFAULT_TAG} \
-            ${{ matrix.containerfile }}
+          set -euo pipefail
+          sudo -E "$(command -v just)" build \
+            "${IMAGE_NAME}" \
+            "${DEFAULT_TAG}" \
+            "${{ matrix.containerfile }}" \
+            "${{ matrix.image_description }}"
+
+      - name: Verify built image
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo -E podman image exists "${IMAGE_NAME}:${DEFAULT_TAG}"
+          sudo -E podman image inspect "${IMAGE_NAME}:${DEFAULT_TAG}" >/dev/null
 
       # This is optional, this provides smaller delta updates.
       # DESATIVADO: bug de compatibilidade entre containers-storage e
@@ -137,7 +167,7 @@ jobs:
         env:
           ALIAS_TAGS: ${{ steps.gen-build-tags.outputs.alias_tags }}
         run: |
-          sudo -E $(command -v just) tag-images \
+          sudo -E "$(command -v just)" tag-images \
             "${IMAGE_NAME}" \
             "${DEFAULT_TAG}" \
             "${ALIAS_TAGS}"
@@ -160,7 +190,10 @@ jobs:
         run: |
           set -euox pipefail
           for tag in ${ALIAS_TAGS}; do
-            sudo -E podman push --digestfile=/tmp/digestfile ${IMAGE_NAME}:${tag} ${IMAGE_REGISTRY}/${IMAGE_NAME}:${tag}
+            sudo -E podman push \
+              --digestfile=/tmp/digestfile \
+              "${IMAGE_NAME}:${tag}" \
+              "${IMAGE_REGISTRY}/${IMAGE_NAME}:${tag}"
           done
 
           digest=$(< /tmp/digestfile)
@@ -186,4 +219,4 @@ jobs:
           COSIGN_PRIVATE_KEY: ${{ secrets.SIGNING_SECRET }}
           DIGEST: ${{ steps.push-image.outputs.digest }}
         run: |
-          cosign sign -y --key env://COSIGN_PRIVATE_KEY ${IMAGE_REGISTRY}/${IMAGE_NAME}@${DIGEST}
+          cosign sign -y --key env://COSIGN_PRIVATE_KEY "${IMAGE_REGISTRY}/${IMAGE_NAME}@${DIGEST}"

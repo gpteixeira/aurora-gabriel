@@ -1,208 +1,178 @@
-# aurora-custom-gpteixeira
+# aurora-gabriel
 
-Imagem Aurora (Universal Blue) customizada — bootc/OCI. Este documento
-descreve exatamente o que a imagem faz e como usá-la. Para tudo que for
-específico do **Aurora em si** (o que ele é, filosofia do projeto, como o
-sistema atômico funciona por baixo), a fonte oficial é:
+Repositório de imagens Linux atômicas personalizadas, baseadas no ecossistema
+Universal Blue/bootc. O mesmo workflow publica duas variantes:
 
-- **Documentação oficial do Aurora**: <https://docs.getaurora.dev>
-- **Repositório oficial do Aurora**: <https://github.com/ublue-os/aurora>
-- **Universal Blue** (projeto guarda-chuva): <https://universal-blue.org>
+| Imagem | Base | Foco | Registro |
+|---|---|---|---|
+| `aurora-custom-gpteixeira` | `ghcr.io/ublue-os/aurora-nvidia-open:stable` | KDE, desenvolvimento, gaming e VirtualBox | `ghcr.io/gpteixeira/aurora-custom-gpteixeira:latest` |
+| `bazzite-gabriel` | `ghcr.io/ublue-os/bazzite-nvidia-open:stable` | Gaming Bazzite, desenvolvimento e virtualização KVM/libvirt | `ghcr.io/gpteixeira/bazzite-gabriel:latest` |
 
-Este README cobre só a **camada customizada** por cima dessa base.
+A customização é construída como imagem OCI bootável. Ela não substitui a ISO
+oficial para a primeira instalação: instale uma base compatível e depois use
+`bootc switch`, ou gere uma imagem de disco/ISO pelo workflow manual
+**Build disk images**.
 
----
+## Componentes compartilhados
 
-## O que esta imagem NÃO é
+As duas variantes incluem:
 
-Não gera uma ISO. Ela é uma **imagem de container bootc**, publicada no
-GHCR. Você instala o Aurora oficial (ISO padrão) e depois troca pra esta
-imagem com um único comando (`bootc switch`) — a partir daí, toda
-atualização futura já vem da sua receita, automaticamente.
+- ferramentas de sistema e desenvolvimento: `curl`, `git`, `gh`, `fastfetch`,
+  `rclone`, `unzip`, `firewalld`, VS Code, Wine e Winetricks;
+- codecs multimídia e integração com RPM Fusion já disponível nas bases;
+- Oh My Posh com o tema Atomic;
+- Hack Nerd Font, perfil do Konsole e configuração do fastfetch;
+- `qt-deepcool`, regra udev e serviço systemd para o DeepCool MYSTIQUE;
+- configuração inicial interativa por usuário, executada uma única vez pelo
+  autostart do Plasma;
+- validação final com `bootc container lint`.
 
----
+Diferenças principais:
 
-## O que está incluído na imagem (por seção do `Containerfile`)
+- **Aurora:** instala Steam, MangoHud, GameMode, Gamescope e VirtualBox.
+- **Bazzite:** preserva a stack gamer da própria imagem-base, não adiciona
+  GameMode e instala GNOME Boxes, QEMU/KVM, libvirt, OVMF e swtpm.
 
-### 0) Compilação isolada do `qt-deepcool`
-Compilado num estágio `fedora:44` separado (não fica no sistema final,
-só o binário resultante é copiado). Controla a tela do watercooler
-DeepCool MYSTIQUE. Referência configurável via `QT_DEEPCOOL_REF`
-(padrão: `main`; use um commit específico para builds 100% reprodutíveis).
+## Estrutura do repositório
 
-### 1) Imagem-base
-`ghcr.io/ublue-os/aurora-nvidia-open:stable` — Aurora (KDE Plasma) com o
-driver **NVIDIA de código aberto** já embutido, adequado para a RTX 5080.
-Confira `sudo bootc status` na máquina de destino para garantir que essa é
-a variante certa antes de trocar.
+- `Containerfile`: receita da variante Aurora.
+- `Containerfile.bazzite`: receita da variante Bazzite.
+- `Justfile`: build, tags, imagens de disco e utilitários.
+- `.github/workflows/build.yml`: build em matriz, publicação no GHCR e
+  assinatura cosign.
+- `.github/workflows/build-disk.yml`: geração manual de QCOW2 e Anaconda ISO.
+- `disk_config/`: configurações do bootc-image-builder.
+- `primeiro-boot-por-maquina.sh`: perguntas e configurações dependentes do
+  usuário ou da máquina.
+- `first-boot-launcher.sh` e `gabriel-first-boot.desktop`: execução controlada
+  do primeiro boot dentro do Plasma.
 
-### 2) Dependências base
-`curl`, `git`, `gh`, `fastfetch`, `rclone`, `unzip`, `firewalld`,
-`qt6-qtbase`, `libusb1`, entre outras — ferramentas de sistema usadas pelo
-resto da imagem ou no dia a dia.
+## Build local
 
-### 3) RPM Fusion + codecs multimídia
-Habilita RPM Fusion (free + nonfree). Faz uma checagem condicional antes de
-trocar `ffmpeg-free` por `ffmpeg` completo (evita erro caso o Aurora já
-tenha o ffmpeg completo por padrão). Habilita o repositório
-`fedora-cisco-openh264` e instala os plugins GStreamer necessários para
-H.264 e outros codecs. Instala `libfdk-aac` nas **duas arquiteturas**
-(x86_64 e i686) de propósito — evita um bug antigo do RPM/DNF em que o
-`Obsoletes` da versão de 64 bits bloqueia a versão de 32 bits que o Steam
-precisa.
+Requisitos: Git, Podman, `just` e `jq`.
 
-### 4) Stack de gaming
-Steam, MangoHud, GameMode, Gamescope, Wine, Winetricks, Vulkan Tools.
-
-### 5) Visual Studio Code
-Repositório oficial da Microsoft, chave GPG importada explicitamente para
-`/etc/pki/rpm-gpg/`.
-
-### 6) Oh My Posh
-Binário baixado com versão fixada (`OH_MY_POSH_VERSION`), instalado em
-`/usr/bin` (não `/usr/local` — em sistemas bootc, `/usr/local` aponta para
-`/var/usrlocal`, que é estado da máquina, não da imagem). Tema **Atomic**
-baixado e fixado localmente em `/usr/share/oh-my-posh/themes/`. Um script
-em `/etc/profile.d/gabriel-oh-my-posh.sh` ativa o tema automaticamente para
-qualquer usuário que abrir um shell de login — sem precisar de passo extra
-no primeiro boot.
-
-### 7) Hack Nerd Font
-Baixada com versão fixada (`NERD_FONTS_VERSION`) e instalada globalmente em
-`/usr/share/fonts/`.
-
-### 8) Dotfiles-modelo (Konsole + fastfetch)
-`DarkPastels.colorscheme` (esquema de cores do Konsole, 5% de
-transparência), `Gabriel.profile` (perfil apontando pra esse esquema +
-Hack Nerd Font 11pt) e `fastfetch-config.jsonc` ficam guardados em
-`/usr/share/gabriel-dotfiles/` (para o script de primeiro boot aplicar em
-contas já existentes) **e** em `/etc/skel/` (para contas novas criadas a
-partir desta imagem já nascerem configuradas).
-
-### 9) Virtualização
-GNOME Boxes, QEMU/KVM, libvirt, `swtpm` (TPM emulado — necessário para
-instalar Windows 11 em VM), `edk2-ovmf` (firmware UEFI para VMs).
-
-### 10) Firewall
-Política padrão nega entrada, libera saída — aplicada com
-`firewall-offline-cmd`, já que não há `systemd` rodando de verdade durante
-o build de uma imagem.
-
-### 11) qt-deepcool — binário final
-Binário copiado do estágio de build para `/usr/bin/deepcool-cli`. Regra de
-udev copiada para `/etc/udev/rules.d/`. O serviço systemd é copiado mas
-**nunca habilitado** na imagem — cada máquina decide, manualmente, se quer
-ativá-lo:
+### Aurora
 
 ```bash
-sudo systemctl enable --now deepcool-cli.service
+just build \
+  aurora-custom-gpteixeira \
+  latest \
+  Containerfile \
+  "Imagem Aurora customizada para gaming, desenvolvimento e utilitários de sistema"
 ```
 
-Use isso **só** na máquina que tem o watercooler conectado de verdade
-(o desktop). Em qualquer outra máquina (como o laptop), deixe desativado.
+### Bazzite
 
-### 12-13) Metadados e validação
-Labels OCI padrão, e `bootc container lint` — validação oficial do próprio
-projeto bootc, roda como última etapa do build e falha o build se algo
-estiver estruturalmente errado com a imagem.
+```bash
+just build \
+  bazzite-gabriel \
+  latest \
+  Containerfile.bazzite \
+  "Imagem Bazzite customizada para desenvolvimento e utilitários de sistema"
+```
 
----
+Confirme a imagem resultante:
 
-## O que fica DE FORA da imagem (de propósito)
+```bash
+podman image inspect aurora-custom-gpteixeira:latest
+podman image inspect bazzite-gabriel:latest
+```
 
-| Item | Por quê | Onde vive |
-|---|---|---|
-| Rust (`rustup`), Flutter SDK | Precisam morar em `$HOME`, fora da imagem | `primeiro-boot-por-maquina.sh` |
-| MTU/DNS da conexão | Depende da rede física de cada máquina | `primeiro-boot-por-maquina.sh` |
-| Ativação do `deepcool-cli` | Só faz sentido na máquina com o hardware | Comando manual, uma vez, na máquina certa |
+## Instalação com bootc
 
----
+Antes da troca, confirme que a máquina usa uma variante compatível com NVIDIA
+Open Kernel Modules.
 
-## Como usar
+### Aurora
 
-### 1. Instale o Aurora oficial primeiro
-Baixe a ISO oficial em <https://getaurora.dev> e instale normalmente — sem
-nenhuma customização ainda. Nada de especial nesse passo.
-
-> **Nota sobre testes em VM**: se for testar esta imagem numa VM (GNOME
-> Boxes, por exemplo), a variante `aurora-nvidia-open` funciona sem
-> travar — o driver NVIDIA simplesmente não encontra uma GPU real e não
-> carrega, sem quebrar o sistema. Mas ela baixa ~1-2 GB de driver que não
-> serve pra nada dentro da VM. Se quiser um teste mais leve e focado só na
-> customização (tema, apps, dev tools), use a variante sem NVIDIA
-> (`ghcr.io/ublue-os/aurora:stable`) pra instalar a ISO base na VM.
-
-### 2. Troque para esta imagem customizada
 ```bash
 sudo bootc switch ghcr.io/gpteixeira/aurora-custom-gpteixeira:latest
 sudo reboot
 ```
 
-### 3. Rode o script de primeiro boot (por máquina)
-```bash
-bash primeiro-boot-por-maquina.sh
-```
-
-Isso cobre Rust, Flutter, aplicação dos dotfiles no seu usuário (que já
-existia antes do `bootc switch`, então não foi alcançado por `/etc/skel`),
-e pergunta se aquela máquina específica deve ativar o `deepcool-cli`.
-
----
-
-## Segurança da imagem (assinatura cosign)
-
-Todo build é assinado com `cosign`. Para verificar a assinatura de uma
-imagem publicada:
+### Bazzite
 
 ```bash
-cosign verify --key cosign.pub ghcr.io/gpteixeira/aurora-custom-gpteixeira:latest
+sudo bootc switch ghcr.io/gpteixeira/bazzite-gabriel:latest
+sudo reboot
 ```
 
-A chave privada de assinatura fica só no GitHub Secret (`SIGNING_SECRET`),
-nunca no repositório. Só o `cosign.pub` (chave pública) é versionado.
-
----
-
-## Atualizações automáticas
-
-O workflow de build roda:
-- **Automaticamente**, todo dia (agendado via `cron` em
-  `.github/workflows/build.yml` — horário em UTC, ajuste conforme
-  necessário para seu fuso).
-- **A cada `git push`** na branch `main`, imediatamente.
-- **Manualmente**, a qualquer momento, pelo botão "Run workflow" na aba
-  Actions (precisa de `workflow_dispatch:` habilitado no workflow).
-
-A imagem sempre baixa a versão mais recente do Aurora (`--pull=newer`) no
-momento do build — não existe "aviso" de quando o Aurora publica algo
-novo; é reconstrução periódica que garante isso na prática.
-
-No seu PC, o `bootc-fetch-apply-updates.timer` verifica periodicamente se
-a imagem publicada mudou e prepara a atualização para o próximo boot —
-sem aplicar nada sem você reiniciar quando quiser.
-
----
-
-## Testando antes de aplicar numa máquina real
+No primeiro login gráfico, o Plasma abre a configuração inicial. O marcador
+`~/.local/state/gabriel-first-boot-done` impede novas execuções depois da
+conclusão. Para executar novamente:
 
 ```bash
-just build
-just build-qcow2
-just run-vm-qcow2
+rm -f ~/.local/state/gabriel-first-boot-done
+/usr/share/gabriel-dotfiles/primeiro-boot-por-maquina.sh
 ```
 
-Builda localmente e sobe uma VM a partir da imagem, sem depender do
-GitHub Actions nem arriscar uma máquina real.
+O serviço do DeepCool continua desativado por padrão. Ative apenas na máquina
+que possui o hardware:
 
----
+```bash
+sudo systemctl enable --now deepcool-cli.service
+```
 
-## Segurança do repositório
+## GitHub Actions
 
-Para garantir que nenhum commit chegue à branch `main` sem sua autorização
-explícita (incluindo PRs automáticos do Dependabot):
+O workflow `build.yml` roda em `push` para `main`, em pull requests, diariamente
+e por acionamento manual. A matriz constrói as duas imagens separadamente.
 
-**Settings → Branches → Add rule** para `main`, marque **"Restrict who can
-push to matching branches"** e liste apenas seu usuário. Opcionalmente,
-em **Settings → General → Pull Requests**, confirme que **"Allow
-auto-merge"** está desmarcado.
+A sequência crítica é:
 
+1. validar o `Justfile` e os arquivos usados por `COPY`;
+2. executar `podman build` com o Containerfile da matriz;
+3. confirmar a existência de `${IMAGE_NAME}:${DEFAULT_TAG}`;
+4. criar tags de data/commit;
+5. publicar no GHCR e assinar o digest.
+
+O rechunk com rpm-ostree permanece desativado neste workflow. Isso não impede a
+criação ou o uso da imagem; afeta apenas a otimização das camadas para deltas de
+atualização.
+
+## Imagens de disco e ISO
+
+Execute manualmente **Actions → Build disk images → Run workflow** e escolha a
+imagem. O workflow usa:
+
+- `disk_config/disk.toml` para QCOW2;
+- `disk_config/iso-kde.toml` para Aurora;
+- `disk_config/iso-bazzite-kde.toml` para Bazzite.
+
+Cada job publica um artefato com nome próprio, evitando colisão entre QCOW2 e
+ISO.
+
+## Assinatura cosign
+
+A chave privada deve existir apenas no secret `SIGNING_SECRET`. A chave pública
+versionada é `cosign.pub`.
+
+```bash
+cosign verify --key cosign.pub \
+  ghcr.io/gpteixeira/aurora-custom-gpteixeira:latest
+
+cosign verify --key cosign.pub \
+  ghcr.io/gpteixeira/bazzite-gabriel:latest
+```
+
+## Diagnóstico rápido
+
+### `no such object: "<imagem>:latest"` em `tag-images`
+
+Esse erro significa que a tag esperada não existe no armazenamento local do
+Podman. Verifique primeiro o passo **Build Image**. A receita atual executa o
+`podman build` e valida a imagem imediatamente, portanto a falha deve aparecer
+no ponto real em vez de ser adiada até a etapa de tags.
+
+### Falha em `COPY`
+
+Todo arquivo copiado pelos Containerfiles precisa estar no contexto do build.
+O workflow valida antecipadamente os arquivos compartilhados, incluindo o
+lançador e o arquivo `.desktop` do primeiro boot.
+
+## Pontos deliberadamente externos à imagem
+
+Rustup, Flutter SDK, configurações pessoais do rclone, Warsaw, ajustes locais
+de MTU/DNS e assistentes de IA em CLI são tratados pelo script de primeiro
+boot, pois vivem no `$HOME`, dependem da máquina ou exigem decisão explícita do
+usuário.
