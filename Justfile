@@ -159,6 +159,19 @@ rechunk $target_image=image_name $tag=default_tag:
     --label ostree.commit- --label ostree.final-diffid- \
     --tag "${target_image}:${tag}" | podman load
 
+-----------------------------------------------------------------------------
+# PATCH para o Justfile — SUBSTITUA apenas a receita "ostree-rechunk" pela
+# versão abaixo. A ÚNICA mudança real é a linha do "--from": adicionamos o
+# prefixo "containers-storage:" nela, igual o "--output" já tinha.
+#
+# Por quê: sem o prefixo, a ferramenta interpreta "localhost/imagem:tag"
+# como "vá buscar num registro remoto chamado localhost" (tenta bater em
+# https://localhost/v2/, dá "connection refused"), em vez de "essa imagem
+# já está salva localmente no containers-storage". É um bug conhecido e
+# documentado do ecossistema containers/image, não específico do seu setup
+# — achei até uma issue idêntica no próprio Bluefin da Universal Blue.
+# -----------------------------------------------------------------------------
+
 # Split the image for smaller updates (Classical)!
 ostree-rechunk $target_image=image_name $tag=default_tag:
     #!/usr/bin/env bash
@@ -185,8 +198,10 @@ ostree-rechunk $target_image=image_name $tag=default_tag:
       --max-layers 127 \
       --format-version=2 \
       --bootc \
-      --from "localhost/${target_image}:${tag}" \
+      --from containers-storage:"localhost/${target_image}:${tag}" \
       --output containers-storage:"localhost/${target_image}:${tag}"
+
+
 
 # Generate Default Tag
 [group('Utility')]
