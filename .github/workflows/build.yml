@@ -15,14 +15,19 @@ on:
 env:
   IMAGE_REGISTRY: "ghcr.io/${{ github.repository_owner }}"  # do not edit
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref || github.run_id }}-${{ matrix.image_name }}
-  cancel-in-progress: true
-
 jobs:
   build_push:
     name: Build and push image
     runs-on: ubuntu-24.04
+
+    # O bloco "concurrency" precisa estar AQUI (nível do job), não lá no
+    # topo do arquivo — é só dentro de um job com "strategy.matrix" que o
+    # contexto "matrix.*" existe de verdade. No nível do workflow (fora de
+    # qualquer job) ele simplesmente não é reconhecido, e quebra o parse
+    # do arquivo inteiro (foi exatamente o erro que você recebeu).
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.ref || github.run_id }}-${{ matrix.image_name }}
+      cancel-in-progress: true
 
     permissions:
       contents: read
