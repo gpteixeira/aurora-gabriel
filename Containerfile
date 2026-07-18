@@ -257,21 +257,15 @@ RUN printf '%s\n' \
 
 
 # -----------------------------------------------------------------------------
-# 9) Virtualização — GNOME Boxes, QEMU/KVM e libvirt
+# 9) Virtualização — VirtualBox
 #
-# Pacotes explícitos evitam depender dos metadados de grupos do DNF durante o
-# build da imagem.
+# RPM Fusion já foi habilitado na Seção 3 (codecs) — não precisa repetir
+# aqui. akmod-VirtualBox compila o módulo de kernel vboxdrv contra o kernel
+# desta imagem no momento do build.
 # -----------------------------------------------------------------------------
 RUN dnf5 install -y \
-        edk2-ovmf \
-        gnome-boxes \
-        libvirt-client \
-        libvirt-daemon-config-network \
-        libvirt-daemon-kvm \
-        qemu-kvm \
-        swtpm \
-        swtpm-tools \
-        virt-install \
+        akmod-VirtualBox \
+        VirtualBox \
     && dnf5 clean all
 
 
