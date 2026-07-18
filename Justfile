@@ -1,5 +1,5 @@
 set dotenv-filename := "image-template.env"
-set dotenv-load
+set dotenv-load := true
 
 export image_name := env_var("IMAGE_NAME")
 export repo_organization := env_var("REPO_ORGANIZATION")
@@ -91,7 +91,6 @@ sudoif command *args:
 #
 # This will build an image 'myimage:mytag'
 #
-
 # Build the image using the specified parameters
 # -----------------------------------------------------------------------------
 # PATCH para o Justfile — SUBSTITUA apenas a receita "build" pela versão
@@ -159,7 +158,7 @@ rechunk $target_image=image_name $tag=default_tag:
     --label ostree.commit- --label ostree.final-diffid- \
     --tag "${target_image}:${tag}" | podman load
 
------------------------------------------------------------------------------
+# -----------------------------------------------------------------------------
 # PATCH para o Justfile — SUBSTITUA apenas a receita "ostree-rechunk" pela
 # versão abaixo. A ÚNICA mudança real é a linha do "--from": adicionamos o
 # prefixo "containers-storage:" nela, igual o "--output" já tinha.
@@ -200,8 +199,6 @@ ostree-rechunk $target_image=image_name $tag=default_tag:
       --bootc \
       --from containers-storage:"localhost/${target_image}:${tag}" \
       --output containers-storage:"localhost/${target_image}:${tag}"
-
-
 
 # Generate Default Tag
 [group('Utility')]
