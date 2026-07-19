@@ -88,31 +88,19 @@ RUN dnf5 install -y \
 
 
 # -----------------------------------------------------------------------------
-# 3) RPM Fusion e codecs multimídia
+# 3) Codecs multimídia herdados do Bazzite
 #
-# O Bazzite normalmente já traz o ffmpeg completo. Esta verificação evita que
-# "dnf5 swap ffmpeg-free ffmpeg" falhe quando ffmpeg já estiver instalado.
+# O Bazzite já fornece ffmpeg, codecs GStreamer e aceleração H.264 como parte
+# da própria composição da imagem. Não reinstalamos openh264, noopenh264 ou
+# pacotes do RPM Fusion aqui: misturar essas variantes quebra a resolução de
+# dependências multilib (x86_64/i686) quando o upstream altera sua composição.
+#
+# Esta etapa apenas confirma que o ffmpeg fornecido pela imagem-base está
+# funcional, sem modificar a pilha multimídia.
 # -----------------------------------------------------------------------------
-#RUN /bin/bash -c 'set -euxo pipefail; \
-#    if rpm -q ffmpeg-free >/dev/null 2>&1; then \
-#        echo "ffmpeg-free encontrado; realizando a troca por ffmpeg."; \
-#        dnf5 swap -y ffmpeg-free ffmpeg --allowerasing; \
-#    elif rpm -q ffmpeg >/dev/null 2>&1; then \
-#        echo "ffmpeg completo já está instalado; nenhuma troca necessária."; \
-#    else \
-#        echo "Nenhum ffmpeg encontrado; instalando o pacote completo."; \
-#        dnf5 install -y ffmpeg --allowerasing; \
-#    fi; \
-#    dnf5 config-manager setopt fedora-cisco-openh264.enabled=1; \
-#    dnf5 install -y \
-#        openh264 \
-#        gstreamer1-plugin-openh264 \
-#        gstreamer1-plugins-ugly \
-#        gstreamer1-plugins-bad-freeworld \
-#        gstreamer1-libav \
-#        libfdk-aac.x86_64 \
-#        libfdk-aac.i686; \
-#    dnf5 clean all'
+RUN /bin/bash -c 'set -euxo pipefail; \
+    command -v ffmpeg; \
+    ffmpeg -hide_banner -version | sed -n "1p"'
 
 
 # -----------------------------------------------------------------------------
@@ -124,11 +112,11 @@ RUN dnf5 install -y \
 # já que o próprio scheduler da imagem cobre o mesmo objetivo. Ficam só
 # vulkan-tools, wine e winetricks, que o Bazzite realmente não inclui.
 # -----------------------------------------------------------------------------
-#RUN dnf5 install -y \
-#        vulkan-tools \
-#        wine \
-#        winetricks \
-#    && dnf5 clean all
+RUN dnf5 install -y \
+        vulkan-tools \
+        wine \
+        winetricks \
+    && dnf5 clean all
 
 
 # -----------------------------------------------------------------------------

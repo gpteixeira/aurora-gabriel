@@ -273,15 +273,24 @@ RUN chmod 0755 \
 
 
 # -----------------------------------------------------------------------------
-# 9) Virtualização — VirtualBox
+# 9) Virtualização — KVM/QEMU, libvirt e virt-manager
 #
-# RPM Fusion já foi habilitado na Seção 3 (codecs) — não precisa repetir
-# aqui. akmod-VirtualBox compila o módulo de kernel vboxdrv contra o kernel
-# desta imagem no momento do build.
+# VirtualBox não é instalado na imagem: ele depende do módulo externo vboxdrv,
+# que precisa ser compilado e assinado para o kernel exato de cada composição.
+# Isso tornaria as atualizações bootc frágeis. KVM já faz parte do kernel Linux
+# e toda a stack abaixo está disponível nos repositórios oficiais do Fedora.
 # -----------------------------------------------------------------------------
 RUN dnf5 install -y \
-        akmod-VirtualBox \
-        VirtualBox \
+        edk2-ovmf \
+        libvirt-client \
+        libvirt-daemon-config-network \
+        libvirt-daemon-kvm \
+        qemu-kvm \
+        swtpm \
+        swtpm-tools \
+        virt-install \
+        virt-manager \
+        virt-viewer \
     && dnf5 clean all
 
 

@@ -5,7 +5,7 @@ Universal Blue/bootc. O mesmo workflow publica duas variantes:
 
 | Imagem | Base | Foco | Registro |
 |---|---|---|---|
-| `aurora-custom-gpteixeira` | `ghcr.io/ublue-os/aurora-nvidia-open:stable` | KDE, desenvolvimento, gaming e VirtualBox | `ghcr.io/gpteixeira/aurora-custom-gpteixeira:latest` |
+| `aurora-custom-gpteixeira` | `ghcr.io/ublue-os/aurora-nvidia-open:stable` | KDE, desenvolvimento, gaming e KVM/libvirt | `ghcr.io/gpteixeira/aurora-custom-gpteixeira:latest` |
 | `bazzite-gabriel` | `ghcr.io/ublue-os/bazzite-nvidia-open:stable` | Gaming Bazzite, desenvolvimento e virtualização KVM/libvirt | `ghcr.io/gpteixeira/bazzite-gabriel:latest` |
 
 A customização é construída como imagem OCI bootável. Ela não substitui a ISO
@@ -29,7 +29,7 @@ As duas variantes incluem:
 
 Diferenças principais:
 
-- **Aurora:** instala Steam, MangoHud, GameMode, Gamescope e VirtualBox.
+- **Aurora:** instala Steam, MangoHud, GameMode, Gamescope, virt-manager, QEMU/KVM, libvirt, OVMF e swtpm.
 - **Bazzite:** preserva a stack gamer da própria imagem-base, não adiciona
   GameMode e instala GNOME Boxes, QEMU/KVM, libvirt, OVMF e swtpm.
 

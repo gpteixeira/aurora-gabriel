@@ -107,6 +107,27 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# Virtualização KVM/libvirt — os pacotes já vieram na imagem. Aqui configuramos
+# apenas o usuário e a rede padrão desta máquina.
+# ---------------------------------------------------------------------------
+if ask "Configurar virtualização KVM/libvirt para este usuário?"; then
+    sudo usermod -aG libvirt "$USER"
+    sudo systemctl enable --now virtqemud.socket virtnetworkd.socket
+
+    if sudo virsh --connect qemu:///system net-info default >/dev/null 2>&1; then
+        sudo virsh --connect qemu:///system net-autostart default
+        if ! sudo virsh --connect qemu:///system net-info default | grep -qE '^Active:[[:space:]]+yes$'; then
+            sudo virsh --connect qemu:///system net-start default
+        fi
+    else
+        warn "A rede libvirt 'default' não foi encontrada; o virt-manager poderá criá-la posteriormente."
+    fi
+
+    warn "Faça logout/login para a associação ao grupo libvirt ser aplicada."
+    ok "KVM/libvirt configurado. Abra o aplicativo Virtual Machine Manager."
+fi
+
+# ---------------------------------------------------------------------------
 # Warsaw (banco) — de propósito fora da imagem. Só se esta máquina precisar.
 # ---------------------------------------------------------------------------
 if ask "Instalar o módulo Warsaw (Caixa) nesta máquina?" "N"; then
@@ -152,4 +173,4 @@ fi
 echo
 ok "Primeiro boot desta máquina configurado."
 info "Tudo o resto (Steam, MangoHud, Gamescope, GameMode, Wine, VS Code, gh, fastfetch,"
-info "oh-my-posh, RPM Fusion, firewalld, Boxes) já veio pronto na própria imagem."
+info "oh-my-posh, RPM Fusion, firewalld e virt-manager/KVM) já veio pronto na própria imagem."
